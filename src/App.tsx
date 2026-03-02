@@ -1,0 +1,2342 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  LayoutDashboard, 
+  ClipboardList, 
+  FileText, 
+  Users, 
+  Settings, 
+  LogOut, 
+  Plus, 
+  CheckCircle2, 
+  AlertTriangle, 
+  Clock,
+  Building2,
+  ShieldCheck,
+  ChevronRight,
+  Menu,
+  X,
+  Thermometer,
+  Droplets,
+  Activity,
+  Search,
+  Globe,
+  Database,
+  Download,
+  RefreshCw,
+  Trash2,
+  Edit,
+  ToggleLeft,
+  ToggleRight
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { api } from './services/api';
+import { User, Company, JournalTemplate, LogEntry, HACCPPlan } from './types';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+import { jsPDF } from 'jspdf';
+import * as XLSX from 'xlsx';
+import { geminiService } from './services/geminiService';
+import { translations, Language } from './translations';
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState(() => localStorage.getItem('safeflow_view') || 'dashboard');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [language, setLanguage] = useState<Language>(() => (localStorage.getItem('safeflow_lang') as Language) || 'en');
+  const [showLanding, setShowLanding] = useState(true);
+
+  const t = translations[language];
+
+  useEffect(() => {
+    localStorage.setItem('safeflow_view', view);
+  }, [view]);
+
+  useEffect(() => {
+    localStorage.setItem('safeflow_lang', language);
+  }, [language]);
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    try {
+      const data = await api.auth.me();
+      if (data.user) setUser(data.user);
+    } catch (err) {
+      console.error('Auth check failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
+    
+    try {
+      const data = await api.auth.login({ email, password });
+      if (data.user) setUser(data.user);
+      else alert(data.error || 'Login failed');
+    } catch (err: any) {
+      alert(err.message || 'Login failed');
+    }
+  };
+
+  const handleRegisterCompany = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const data = {
+      companyName: formData.get('companyName'),
+      adminName: formData.get('adminName'),
+      adminEmail: formData.get('adminEmail'),
+      adminPassword: formData.get('adminPassword'),
+      industryType: formData.get('industryType'),
+    };
+
+    try {
+      const res = await api.auth.registerCompany(data);
+      if (res.success) {
+        alert(t.registration_success);
+        setShowLanding(true);
+      } else {
+        alert(res.error || 'Registration failed');
+      }
+    } catch (err) {
+      alert('Registration failed');
+    }
+  };
+
+  const handleLogout = async () => {
+    await api.auth.logout();
+    setUser(null);
+    setView('dashboard');
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-stone-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    if (showLanding) {
+      return <LandingPage t={t} onSignIn={() => setShowLanding(false)} language={language} setLanguage={setLanguage} onRegister={handleRegisterCompany} />;
+    }
+
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-stone-50 p-4 relative">
+        <div className="absolute top-4 left-4">
+          <button 
+            onClick={() => setShowLanding(true)}
+            className="flex items-center gap-2 text-stone-500 hover:text-stone-900 font-medium transition-colors"
+          >
+            <ChevronRight size={18} className="rotate-180" />
+            {t.back_to_home}
+          </button>
+        </div>
+        <div className="absolute top-4 right-4 flex items-center gap-2 px-3 py-2 bg-white border border-stone-200 rounded-lg shadow-sm">
+          <Globe size={16} className="text-stone-400 shrink-0" />
+          <select 
+            value={language} 
+            onChange={(e) => setLanguage(e.target.value as Language)}
+            className="bg-transparent text-xs font-medium text-stone-600 outline-none cursor-pointer"
+          >
+            <option value="en">English</option>
+            <option value="ru">Русский</option>
+            <option value="az">Azərbaycan</option>
+          </select>
+        </div>
+
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="max-w-md w-full bg-white rounded-2xl shadow-xl shadow-stone-200/50 p-8 border border-stone-100"
+        >
+          <div className="flex flex-col items-center mb-8">
+            <div className="bg-emerald-100 p-3 rounded-xl mb-2">
+              <ShieldCheck className="w-10 h-10 text-emerald-600" />
+            </div>
+            <h1 className="text-2xl font-bold text-stone-900">SafeFlow HACCP</h1>
+            <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Food facility HACCP management platform</p>
+          </div>
+          <p className="text-stone-500 text-center mb-8">{t.sign_in_desc}</p>
+          
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">{t.email_address}</label>
+              <input 
+                name="email"
+                type="email" 
+                required
+                className="w-full px-4 py-2 rounded-lg border border-stone-200 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all"
+                placeholder="admin@safeflow.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">{t.password}</label>
+              <input 
+                name="password"
+                type="password" 
+                required
+                className="w-full px-4 py-2 rounded-lg border border-stone-200 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all"
+                placeholder="••••••••"
+              />
+            </div>
+            <button 
+              type="submit"
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 rounded-lg transition-colors shadow-lg shadow-emerald-200"
+            >
+              {t.sign_in}
+            </button>
+          </form>
+          
+          <div className="mt-6 text-center text-sm text-stone-400">
+            <p>Demo Credentials:</p>
+            <p>admin@safeflow.com / admin123</p>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-stone-50 flex">
+      {/* Sidebar */}
+      <aside className={cn(
+        "bg-stone-900 text-stone-300 transition-all duration-300 flex flex-col",
+        isSidebarOpen ? "w-64" : "w-20"
+      )}>
+        <div className="p-6 flex items-center gap-3">
+          <div className="bg-emerald-500 p-2 rounded-lg shrink-0">
+            <ShieldCheck className="w-6 h-6 text-white" />
+          </div>
+          {isSidebarOpen && <span className="font-bold text-white text-lg tracking-tight">SafeFlow</span>}
+        </div>
+
+        <nav className="flex-1 px-4 space-y-2">
+          <NavItem 
+            icon={<LayoutDashboard size={20} />} 
+            label={t.dashboard} 
+            active={view === 'dashboard'} 
+            onClick={() => setView('dashboard')}
+            collapsed={!isSidebarOpen}
+          />
+          <NavItem 
+            icon={<ClipboardList size={20} />} 
+            label={t.journals} 
+            active={view === 'journals'} 
+            onClick={() => setView('journals')}
+            collapsed={!isSidebarOpen}
+          />
+          <NavItem 
+            icon={<FileText size={20} />} 
+            label={t.haccp} 
+            active={view === 'haccp'} 
+            onClick={() => setView('haccp')}
+            collapsed={!isSidebarOpen}
+          />
+          {(user.role === 'SUPER_ADMIN' || user.role === 'COMPANY_ADMIN') && (
+            <NavItem 
+              icon={<Users size={20} />} 
+              label={t.staff} 
+              active={view === 'users'} 
+              onClick={() => setView('users')}
+              collapsed={!isSidebarOpen}
+            />
+          )}
+          {user.role === 'SUPER_ADMIN' && (
+            <NavItem 
+              icon={<Building2 size={20} />} 
+              label={t.companies} 
+              active={view === 'companies'} 
+              onClick={() => setView('companies')}
+              collapsed={!isSidebarOpen}
+            />
+          )}
+          {user.role === 'SUPER_ADMIN' && (
+            <NavItem 
+              icon={<Database size={20} />} 
+              label={t.backups} 
+              active={view === 'backups'} 
+              onClick={() => setView('backups')}
+              collapsed={!isSidebarOpen}
+            />
+          )}
+        </nav>
+
+        <div className="p-4 border-t border-stone-800 space-y-4">
+          <div className={cn("flex items-center gap-2 px-3 py-2 bg-stone-800 rounded-lg", !isSidebarOpen && "justify-center")}>
+            <Globe size={16} className="text-stone-400 shrink-0" />
+            {isSidebarOpen && (
+              <select 
+                value={language} 
+                onChange={(e) => setLanguage(e.target.value as Language)}
+                className="bg-transparent text-xs font-medium text-stone-300 outline-none w-full cursor-pointer"
+              >
+                <option value="en">English</option>
+                <option value="ru">Русский</option>
+                <option value="az">Azərbaycan</option>
+              </select>
+            )}
+          </div>
+          <button 
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-4 py-2 rounded-lg hover:bg-stone-800 transition-colors text-stone-400 hover:text-white"
+          >
+            <LogOut size={20} />
+            {isSidebarOpen && <span>{t.logout}</span>}
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <header className="h-16 bg-white border-b border-stone-200 flex items-center justify-between px-8">
+          <button 
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="p-2 hover:bg-stone-100 rounded-lg text-stone-500"
+          >
+            {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+          
+          <div className="flex items-center gap-4">
+            <div className="text-right hidden sm:block">
+              <p className="text-sm font-semibold text-stone-900">{user.name}</p>
+              <p className="text-xs text-stone-500">{user.role.replace('_', ' ')}</p>
+            </div>
+            <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-700 font-bold">
+              {user.name[0]}
+            </div>
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-y-auto p-8">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={view}
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
+              transition={{ duration: 0.2 }}
+            >
+              {view === 'dashboard' && <Dashboard user={user} t={t} />}
+              {view === 'journals' && <JournalsView user={user} t={t} />}
+              {view === 'haccp' && <HACCPView user={user} t={t} />}
+              {view === 'users' && <UsersView user={user} t={t} />}
+              {view === 'companies' && <CompaniesView user={user} t={t} />}
+              {view === 'backups' && user.role === 'SUPER_ADMIN' && <BackupsView t={t} />}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function NavItem({ icon, label, active, onClick, collapsed }: { icon: React.ReactNode, label: string, active: boolean, onClick: () => void, collapsed: boolean }) {
+  return (
+    <button 
+      onClick={onClick}
+      className={cn(
+        "w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all group",
+        active 
+          ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20" 
+          : "hover:bg-stone-800 text-stone-400 hover:text-stone-200"
+      )}
+    >
+      <span className={cn("shrink-0", active ? "text-white" : "group-hover:text-stone-200")}>
+        {icon}
+      </span>
+      {!collapsed && <span className="font-medium">{label}</span>}
+    </button>
+  );
+}
+
+// --- Views ---
+
+function BackupsView({ t }: { t: any }) {
+  const [backups, setBackups] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [triggering, setTriggering] = useState(false);
+
+  const fetchBackups = async () => {
+    try {
+      const data = await fetch('/api/backups').then(res => res.json());
+      setBackups(data);
+    } catch (err) {
+      console.error('Failed to fetch backups');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBackups();
+  }, []);
+
+  const handleTriggerBackup = async () => {
+    setTriggering(true);
+    try {
+      await fetch('/api/backups/trigger', { method: 'POST' });
+      await fetchBackups();
+    } catch (err) {
+      alert('Failed to trigger backup');
+    } finally {
+      setTriggering(false);
+    }
+  };
+
+  const handleDownload = (id: number, filename: string) => {
+    window.open(`/api/backups/${id}/download`, '_blank');
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold text-stone-900">{t.backups}</h2>
+          <p className="text-stone-500">Manage and download automated database backups.</p>
+        </div>
+        <button 
+          onClick={handleTriggerBackup}
+          disabled={triggering}
+          className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 hover:bg-emerald-700 transition-colors disabled:opacity-50"
+        >
+          <RefreshCw size={18} className={triggering ? "animate-spin" : ""} />
+          Manual Backup
+        </button>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-sm">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-stone-50 border-b border-stone-200">
+              <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-widest">ID</th>
+              <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-widest">Filename</th>
+              <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-widest">Created At</th>
+              <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-widest">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-stone-100">
+            {loading ? (
+              <tr>
+                <td colSpan={4} className="px-6 py-12 text-center text-stone-400">Loading backups...</td>
+              </tr>
+            ) : backups.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="px-6 py-12 text-center text-stone-400">No backups found.</td>
+              </tr>
+            ) : backups.map(b => (
+              <tr key={b.id} className="hover:bg-stone-50 transition-colors">
+                <td className="px-6 py-4 text-stone-400 font-mono text-xs">#{b.id}</td>
+                <td className="px-6 py-4 font-medium text-stone-900">{b.filename}</td>
+                <td className="px-6 py-4 text-stone-500 text-sm">
+                  {new Date(b.created_at).toLocaleString()}
+                </td>
+                <td className="px-6 py-4">
+                  <button 
+                    onClick={() => handleDownload(b.id, b.filename)}
+                    className="p-2 text-stone-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                    title="Download Backup"
+                  >
+                    <Download size={18} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ user, t }: { user: User, t: any }) {
+  const [logs, setLogs] = useState<any[]>([]);
+  const [actions, setActions] = useState<any[]>([]);
+  const [adminStats, setAdminStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (user.role === 'SUPER_ADMIN') {
+      api.admin.stats().then(data => {
+        setAdminStats(data);
+        setLoading(false);
+      });
+    } else {
+      Promise.all([
+        api.logs.list(),
+        api.correctiveActions.list()
+      ]).then(([logsData, actionsData]) => {
+        setLogs(logsData);
+        setActions(actionsData);
+        setLoading(false);
+      });
+    }
+  }, [user.role]);
+
+  const deviations = logs.filter(l => l.status === 'DEVIATION').length;
+  const complianceScore = logs.length > 0 ? Math.round(((logs.length - deviations) / logs.length) * 100) : 100;
+
+  const handleExport = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(20);
+    doc.text('HACCP Compliance Report', 20, 20);
+    doc.setFontSize(12);
+    doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, 30);
+    doc.text(`Compliance Score: ${complianceScore}%`, 20, 40);
+    doc.text(`Total Logs: ${logs.length}`, 20, 50);
+    doc.text(`Total Deviations: ${deviations}`, 20, 60);
+
+    let y = 80;
+    doc.setFontSize(14);
+    doc.text('Recent Logs:', 20, y);
+    y += 10;
+    doc.setFontSize(10);
+    logs.slice(0, 20).forEach((log, i) => {
+      if (y > 270) {
+        doc.addPage();
+        y = 20;
+      }
+      doc.text(`${log.created_at} - ${log.journal_name} - ${log.status}`, 20, y);
+      y += 7;
+    });
+
+    doc.save('haccp-report.pdf');
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="flex justify-between items-end">
+        <div>
+          <h1 className="text-3xl font-bold text-stone-900">{t.welcome}, {user.name}</h1>
+          <p className="text-stone-500 mt-1">{user.role === 'SUPER_ADMIN' ? t.manage_platform : t.compliance_overview}</p>
+        </div>
+        <div className="flex gap-3">
+          <button 
+            onClick={handleExport}
+            className="bg-white border border-stone-200 px-4 py-2 rounded-lg text-stone-600 font-medium hover:bg-stone-50 transition-colors"
+          >
+            {t.export_report}
+          </button>
+        </div>
+      </div>
+
+      {user.role === 'SUPER_ADMIN' && adminStats ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <StatCard icon={<Building2 className="text-emerald-600" />} label={t.total_companies} value={adminStats.totalCompanies} color="emerald" />
+          <StatCard icon={<Clock className="text-amber-600" />} label={t.pending_registrations} value={adminStats.pendingCompanies} color="amber" />
+          <StatCard icon={<Users className="text-blue-600" />} label="Total Users" value={adminStats.totalUsers} color="blue" />
+          <StatCard icon={<Activity className="text-purple-600" />} label="Total Logs" value={adminStats.totalLogs} color="purple" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <StatCard 
+            icon={<CheckCircle2 className="text-emerald-600" />} 
+            label={t.compliance_score} 
+            value={`${complianceScore}%`} 
+            trend={complianceScore >= 95 ? "Excellent" : "Needs Attention"} 
+            color="emerald"
+          />
+          <StatCard 
+            icon={<AlertTriangle className="text-amber-600" />} 
+            label={t.deviations} 
+            value={actions.filter(a => a.status === 'OPEN').length.toString()} 
+            trend={deviations > 0 ? `+${deviations} total` : "0 total"} 
+            color="amber"
+          />
+          <StatCard 
+            icon={<Clock className="text-blue-600" />} 
+            label={t.total_logs} 
+            value={logs.length.toString()} 
+            trend="Lifetime" 
+            color="blue"
+          />
+          <StatCard 
+            icon={<Activity className="text-rose-600" />} 
+            label={t.active_ccps} 
+            value="2" 
+            trend="Stable" 
+            color="rose"
+          />
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Recent Activity */}
+        <div className="lg:col-span-2 bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-lg font-bold text-stone-900">{t.recent_activity}</h3>
+            <button className="text-emerald-600 text-sm font-medium hover:underline">{t.view_all}</button>
+          </div>
+          <div className="space-y-4">
+            {logs.slice(0, 5).map((log) => (
+              <div key={log.id} className="flex items-center justify-between p-4 rounded-xl border border-stone-100 hover:bg-stone-50 transition-colors cursor-pointer">
+                <div className="flex items-center gap-4">
+                  <div className="bg-stone-100 p-2 rounded-lg">
+                    <ClipboardList className="w-5 h-5 text-stone-600" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-stone-900">{log.journal_name}</p>
+                    <p className="text-xs text-stone-500">Logged by {log.user_name} • {new Date(log.created_at).toLocaleString()}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className={cn(
+                    "px-2 py-1 text-[10px] font-bold rounded uppercase tracking-wider",
+                    log.status === 'APPROVED' ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
+                  )}>
+                    {log.status}
+                  </span>
+                </div>
+              </div>
+            ))}
+            {logs.length === 0 && !loading && user.role !== 'SUPER_ADMIN' && (
+              <p className="text-center py-8 text-stone-400 italic">No logs recorded yet.</p>
+            )}
+            {user.role === 'SUPER_ADMIN' && (
+              <p className="text-center py-8 text-stone-400 italic">Platform activity summary.</p>
+            )}
+          </div>
+        </div>
+
+        {/* Alerts & Notifications */}
+        <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
+          <h3 className="text-lg font-bold text-stone-900 mb-6">{user.role === 'SUPER_ADMIN' ? 'System Alerts' : t.corrective_actions}</h3>
+          <div className="space-y-4">
+            {user.role === 'SUPER_ADMIN' ? (
+              <div className="p-4 bg-amber-50 rounded-xl border border-amber-100 flex gap-3">
+                <AlertCircle className="text-amber-600 shrink-0" size={20} />
+                <div>
+                  <p className="text-sm font-bold text-amber-900">Pending Registrations</p>
+                  <p className="text-xs text-amber-700">You have {adminStats?.pendingCompanies || 0} companies waiting for approval.</p>
+                </div>
+              </div>
+            ) : (
+              <>
+                {actions.filter(a => a.status === 'OPEN').map(action => (
+                  <AlertItem 
+                    key={action.id}
+                    type="danger" 
+                    title="CCP Deviation" 
+                    desc={action.description} 
+                    time={new Date(action.log_date).toLocaleDateString()} 
+                  />
+                ))}
+                {actions.filter(a => a.status === 'OPEN').length === 0 && (
+                  <div className="text-center py-12">
+                    <CheckCircle2 className="w-12 h-12 text-emerald-100 mx-auto mb-3" />
+                    <p className="text-stone-400 text-sm">All clear! No open deviations.</p>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ icon, label, value, trend, color }: { icon: React.ReactNode, label: string, value: string, trend: string, color: string }) {
+  return (
+    <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm hover:shadow-md transition-shadow">
+      <div className="flex items-center justify-between mb-4">
+        <div className={cn("p-2 rounded-lg", `bg-${color}-50`)}>
+          {icon}
+        </div>
+        <span className={cn("text-xs font-bold px-2 py-1 rounded-full", 
+          trend.startsWith('+') ? "bg-emerald-50 text-emerald-600" : 
+          trend.startsWith('-') ? "bg-rose-50 text-rose-600" : "bg-stone-50 text-stone-600"
+        )}>
+          {trend}
+        </span>
+      </div>
+      <p className="text-stone-500 text-sm font-medium">{label}</p>
+      <p className="text-2xl font-bold text-stone-900 mt-1">{value}</p>
+    </div>
+  );
+}
+
+function AlertItem({ type, title, desc, time }: { type: 'danger' | 'warning' | 'info', title: string, desc: string, time: string }) {
+  const colors = {
+    danger: "bg-rose-50 border-rose-100 text-rose-900",
+    warning: "bg-amber-50 border-amber-100 text-amber-900",
+    info: "bg-blue-50 border-blue-100 text-blue-900"
+  };
+
+  return (
+    <div className={cn("p-4 rounded-xl border", colors[type])}>
+      <div className="flex justify-between items-start mb-1">
+        <p className="font-bold text-sm">{title}</p>
+        <span className="text-[10px] opacity-60 font-medium">{time}</span>
+      </div>
+      <p className="text-xs opacity-80 leading-relaxed">{desc}</p>
+    </div>
+  );
+}
+
+function JournalsView({ user, t }: { user: User, t: any }) {
+  const [journals, setJournals] = useState<JournalTemplate[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeJournal, setActiveJournal] = useState<JournalTemplate | null>(null);
+  const [isFilling, setIsFilling] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [staffList, setStaffList] = useState<User[]>([]);
+  const [newFields, setNewFields] = useState<{name: string, label: string, type: string}[]>([
+    { name: 'staff_name', label: 'Name of staff', type: 'staff' },
+    { name: 'date', label: 'Date', type: 'date' },
+    { name: 'time', label: 'Time', type: 'time' },
+    { name: 'action', label: 'Action', type: 'text' },
+    { name: 'materials', label: 'Used materials', type: 'text' }
+  ]);
+
+  useEffect(() => {
+    fetchJournals();
+    fetchStaff();
+    if (user.role === 'SUPER_ADMIN') {
+      api.companies.list().then(setCompanies);
+    }
+    
+    // Restore draft if exists
+    const saved = localStorage.getItem('safeflow_draft_template');
+    if (saved) {
+      try {
+        const { fields } = JSON.parse(saved);
+        if (fields) setNewFields(fields);
+      } catch (e) {}
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isCreating) {
+      localStorage.setItem('safeflow_draft_template', JSON.stringify({ fields: newFields }));
+    }
+  }, [newFields, isCreating]);
+
+  const fetchJournals = () => {
+    api.journals.list().then(data => {
+      setJournals(data);
+      setLoading(false);
+    });
+  };
+
+  const fetchStaff = () => {
+    api.users.list().then(data => setStaffList(data));
+  };
+
+  const handleExportLogs = async () => {
+    try {
+      const logs = await api.logs.list();
+      const worksheet = XLSX.utils.json_to_sheet(logs.map(l => ({
+        Date: l.created_at,
+        Journal: l.journal_name,
+        User: l.user_name,
+        Status: l.status,
+        Data: JSON.stringify(l.data),
+        Deviations: l.deviation_notes || ''
+      })));
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Logs");
+      XLSX.writeFile(workbook, "haccp_logs.xlsx");
+    } catch (err) {
+      alert('Failed to export logs');
+    }
+  };
+
+  const handleCreateTemplate = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const name = formData.get('name') as string;
+    const company_id = formData.get('company_id') ? Number(formData.get('company_id')) : undefined;
+
+    setIsSaving(true);
+    try {
+      await api.journals.create({ name, fields: newFields, company_id });
+      localStorage.removeItem('safeflow_draft_template');
+      alert('Template created!');
+      setIsCreating(false);
+      setNewFields([
+        { name: 'staff_name', label: 'Name of staff', type: 'staff' },
+        { name: 'date', label: 'Date', type: 'date' },
+        { name: 'time', label: 'Time', type: 'time' },
+        { name: 'action', label: 'Action', type: 'text' },
+        { name: 'materials', label: 'Used materials', type: 'text' }
+      ]);
+      fetchJournals();
+    } catch (err) {
+      alert('Failed to create template');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const addField = () => {
+    setNewFields([...newFields, { name: '', label: '', type: 'text' }]);
+  };
+
+  const removeField = (index: number) => {
+    setNewFields(newFields.filter((_, i) => i !== index));
+  };
+
+  const updateField = (index: number, key: string, value: string) => {
+    const updated = [...newFields];
+    updated[index] = { ...updated[index], [key]: value };
+    setNewFields(updated);
+  };
+
+  const handleFillLog = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!activeJournal) return;
+    
+    const formData = new FormData(e.currentTarget);
+    const data: any = {};
+    JSON.parse(activeJournal.fields).forEach((f: any) => {
+      data[f.name] = f.type === 'number' ? Number(formData.get(f.name)) : formData.get(f.name);
+    });
+
+    setIsSaving(true);
+    try {
+      const result = await api.logs.create({ journal_id: activeJournal.id, data });
+      alert(`Log submitted! Status: ${result.status}`);
+      setIsFilling(false);
+      setActiveJournal(null);
+      // Refresh dashboard data if needed, or just let user navigate
+    } catch (err) {
+      alert('Failed to submit log');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold text-stone-900">{t.journals}</h2>
+          <p className="text-stone-500">Manage and fill your digital compliance logs.</p>
+        </div>
+        <div className="flex gap-3">
+          <button 
+            onClick={handleExportLogs}
+            className="bg-white border border-stone-200 px-4 py-2 rounded-lg text-stone-600 font-medium hover:bg-stone-50 transition-colors flex items-center gap-2"
+          >
+            <FileText size={18} />
+            {t.export_logs}
+          </button>
+          {(user.role === 'COMPANY_ADMIN' || user.role === 'HACCP_MANAGER') && (
+            <button 
+              onClick={() => setIsCreating(true)}
+              className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 hover:bg-emerald-700 transition-colors"
+            >
+              <Plus size={18} />
+              {t.create_template}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {journals.map(j => (
+          <div key={j.id} className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm hover:shadow-md transition-all group">
+            <div className="flex justify-between items-start mb-4">
+              <div className="flex items-center gap-2">
+                <div className="bg-stone-50 p-3 rounded-xl group-hover:bg-emerald-50 transition-colors">
+                  <ClipboardList className="text-stone-400 group-hover:text-emerald-600" />
+                </div>
+                {j.company_id === null && (
+                  <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-[10px] font-bold rounded uppercase tracking-wider">
+                    {t.global_template}
+                  </span>
+                )}
+              </div>
+              <button className="text-stone-400 hover:text-stone-600">
+                <Settings size={18} />
+              </button>
+            </div>
+            <h3 className="font-bold text-stone-900 text-lg">{j.name}</h3>
+            <p className="text-sm text-stone-500 mt-1">Ready for entry</p>
+            <div className="mt-6 pt-6 border-t border-stone-100 flex gap-3">
+              <button 
+                onClick={() => { setActiveJournal(j); setIsFilling(true); }}
+                className="flex-1 bg-emerald-600 text-white py-2 rounded-lg text-sm font-semibold hover:bg-emerald-700 transition-colors"
+              >
+                {t.fill_log}
+              </button>
+              <button className="px-3 py-2 border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 transition-colors">
+                <FileText size={18} />
+              </button>
+            </div>
+          </div>
+        ))}
+        
+        {/* Empty State / Placeholder */}
+        {journals.length === 0 && !loading && (
+          <div className="col-span-full py-20 text-center bg-white rounded-2xl border-2 border-dashed border-stone-200">
+            <div className="bg-stone-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+              <ClipboardList className="text-stone-300 w-8 h-8" />
+            </div>
+            <h3 className="text-lg font-bold text-stone-900">No journals found</h3>
+            <p className="text-stone-500 mt-1 max-w-xs mx-auto">Start by creating your first electronic journal template.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Create Template Modal */}
+      <AnimatePresence>
+        {isCreating && (
+          <div className="fixed inset-0 bg-stone-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
+            >
+              <div className="p-6 border-b border-stone-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-stone-900">{t.create_template}</h3>
+                <div className="flex items-center gap-3">
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      localStorage.removeItem('safeflow_draft_template');
+                      setNewFields([
+                        { name: 'staff_name', label: 'Name of staff', type: 'staff' },
+                        { name: 'date', label: 'Date', type: 'date' },
+                        { name: 'time', label: 'Time', type: 'time' },
+                        { name: 'action', label: 'Action', type: 'text' },
+                        { name: 'materials', label: 'Used materials', type: 'text' }
+                      ]);
+                    }}
+                    className="text-xs font-bold text-stone-400 hover:text-rose-500 uppercase tracking-widest transition-colors"
+                  >
+                    Reset
+                  </button>
+                  <button onClick={() => setIsCreating(false)} className="text-stone-400 hover:text-stone-600">
+                    <X size={24} />
+                  </button>
+                </div>
+              </div>
+              <form onSubmit={handleCreateTemplate} className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">{t.journal_name}</label>
+                  <input name="name" required className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" placeholder="e.g. Production Log" />
+                </div>
+
+                {user.role === 'SUPER_ADMIN' && (
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Assign to Company</label>
+                    <select name="company_id" className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none">
+                      <option value="">Global (All Companies)</option>
+                      {companies.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-stone-500 italic">Global templates are visible to all companies.</p>
+                  </div>
+                )}
+                
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h4 className="text-sm font-bold text-stone-900 uppercase tracking-wider">Fields</h4>
+                    <button 
+                      type="button" 
+                      onClick={addField}
+                      className="text-emerald-600 text-xs font-bold flex items-center gap-1 hover:underline"
+                    >
+                      <Plus size={14} /> Add Field
+                    </button>
+                  </div>
+                  
+                  {newFields.map((field, index) => (
+                    <div key={index} className="p-4 bg-stone-50 rounded-xl border border-stone-100 space-y-3 relative group">
+                      <button 
+                        type="button"
+                        onClick={() => removeField(index)}
+                        className="absolute -top-2 -right-2 bg-white border border-stone-200 text-stone-400 hover:text-rose-500 p-1 rounded-full shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X size={12} />
+                      </button>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1">Label</label>
+                          <input 
+                            value={field.label}
+                            onChange={(e) => updateField(index, 'label', e.target.value)}
+                            required 
+                            className="w-full px-3 py-1.5 text-sm rounded-lg border border-stone-200 outline-none" 
+                            placeholder="e.g. Temperature"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1">ID (Unique)</label>
+                          <input 
+                            value={field.name}
+                            onChange={(e) => updateField(index, 'name', e.target.value)}
+                            required 
+                            className="w-full px-3 py-1.5 text-sm rounded-lg border border-stone-200 outline-none" 
+                            placeholder="e.g. temp"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1">Type</label>
+                        <select 
+                          value={field.type}
+                          onChange={(e) => updateField(index, 'type', e.target.value)}
+                          className="w-full px-3 py-1.5 text-sm rounded-lg border border-stone-200 outline-none"
+                        >
+                          <option value="number">{t.number}</option>
+                          <option value="text">{t.text}</option>
+                          <option value="date">{t.date}</option>
+                          <option value="time">{t.time}</option>
+                          <option value="staff">{t.staff_name_list}</option>
+                        </select>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="pt-4 flex gap-3">
+                  <button type="button" onClick={() => setIsCreating(false)} className="flex-1 px-4 py-2 border border-stone-200 rounded-lg text-stone-600 font-medium hover:bg-stone-50 transition-colors">{t.cancel}</button>
+                  <button 
+                    type="submit" 
+                    disabled={isSaving}
+                    className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isSaving ? (
+                      <>
+                        <RefreshCw size={18} className="animate-spin" />
+                        Saving...
+                      </>
+                    ) : t.create_template}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Fill Log Modal */}
+      <AnimatePresence>
+        {isFilling && activeJournal && (
+          <div className="fixed inset-0 bg-stone-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
+            >
+              <div className="p-6 border-b border-stone-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-stone-900">{activeJournal.name}</h3>
+                <button onClick={() => setIsFilling(false)} className="text-stone-400 hover:text-stone-600">
+                  <X size={24} />
+                </button>
+              </div>
+              <form onSubmit={handleFillLog} className="p-6 space-y-4">
+                {JSON.parse(activeJournal.fields).map((field: any) => (
+                  <div key={field.name}>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">{field.label}</label>
+                    {field.type === 'staff' ? (
+                      <select 
+                        name={field.name} 
+                        required 
+                        className="w-full px-4 py-2 rounded-lg border border-stone-200 focus:ring-2 focus:ring-emerald-500 outline-none"
+                      >
+                        <option value="">{t.select_staff}</option>
+                        {staffList.map(s => (
+                          <option key={s.id} value={s.name}>{s.name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input 
+                        name={field.name}
+                        type={field.type}
+                        required
+                        className="w-full px-4 py-2 rounded-lg border border-stone-200 focus:ring-2 focus:ring-emerald-500 outline-none"
+                      />
+                    )}
+                  </div>
+                ))}
+                <div className="pt-4 flex gap-3">
+                  <button 
+                    type="button"
+                    onClick={() => setIsFilling(false)}
+                    className="flex-1 px-4 py-2 border border-stone-200 rounded-lg text-stone-600 font-medium hover:bg-stone-50 transition-colors"
+                  >
+                    {t.cancel}
+                  </button>
+                  <button 
+                    type="submit"
+                    disabled={isSaving}
+                    className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-100 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isSaving ? (
+                      <>
+                        <RefreshCw size={18} className="animate-spin" />
+                        Saving...
+                      </>
+                    ) : t.submit_log}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+const HACCP_TEMPLATES = {
+  poultry: {
+    name: "Poultry Farm",
+    image: "https://picsum.photos/seed/poultry/400/300",
+    product_description: "Production of fresh poultry meat and eggs. Birds are raised in controlled environments with strict biosecurity measures.",
+    flow_diagram: "1. Feed Intake -> 2. Bird Rearing -> 3. Health Monitoring -> 4. Sanitation -> 5. Transport to Processing",
+    hazard_analysis: "Biological: Salmonella, Campylobacter. Physical: Feed contaminants. Chemical: Antibiotic residues.",
+    ccp_determination: "CCP1: Feed Intake (Biological), CCP2: Bird Health (Pathogens), CCP3: Sanitation (Microbial), CCP4: Transport (Cross-contamination)",
+    critical_limits: "Feed: <10 CFU/g Salmonella. Health: <2% mortality. Sanitation: Zero pathogens on surfaces. Transport: Clean crates.",
+    monitoring_procedures: "Feed: Certificates of Analysis. Health: Daily mortality logs. Sanitation: ATP swab testing. Transport: Visual inspection.",
+    corrective_actions_plan: "Feed: Reject shipment. Health: Isolate flock. Sanitation: Re-sanitize. Transport: Wash crates again."
+  },
+  restaurant: {
+    name: "General Restaurant",
+    image: "https://picsum.photos/seed/food-plating/400/300",
+    product_description: "Full-service restaurant preparing various cooked-to-order meals including meat, poultry, and seafood.",
+    flow_diagram: "Receiving -> Storage -> Preparation -> Cooking -> Holding -> Serving",
+    hazard_analysis: "Biological: Pathogen survival (undercooking), cross-contamination. Physical: Foreign objects. Chemical: Cleaning agents.",
+    ccp_determination: "CCP1: Cold Storage (Temp), CCP2: Cooking (Internal Temp), CCP3: Hot Holding (Temp)",
+    critical_limits: "Storage: <5°C. Cooking: >75°C for 15s. Holding: >63°C.",
+    monitoring_procedures: "Storage: Digital thermometer logs. Cooking: Probe thermometer checks. Holding: 2-hour temp checks.",
+    corrective_actions_plan: "Storage: Discard if >5°C for 2h. Cooking: Continue cooking until temp reached. Holding: Reheat to 75°C or discard."
+  },
+  manufacturing: {
+    name: "Food Manufacturing",
+    image: "https://picsum.photos/seed/factory/400/300",
+    product_description: "Large scale processing of packaged food products. Includes automated mixing, cooking, and high-speed packaging lines.",
+    flow_diagram: "Raw Material Intake -> Preparation -> Mixing -> Thermal Processing -> Cooling -> Packaging -> Storage",
+    hazard_analysis: "Biological: Spore-forming bacteria. Physical: Metal fragments, glass. Chemical: Allergen cross-contact.",
+    ccp_determination: "CCP1: Thermal Processing (Time/Temp), CCP2: Metal Detection (Physical), CCP3: Allergen Labeling (Chemical)",
+    critical_limits: "Thermal: >85°C for 2 min. Metal: Fe 1.5mm, Non-Fe 2.0mm, SS 2.5mm. Labeling: 100% accurate.",
+    monitoring_procedures: "Thermal: Continuous chart recorders. Metal: Hourly test piece checks. Labeling: Visual check every batch.",
+    corrective_actions_plan: "Thermal: Re-process or discard. Metal: Hold batch, re-scan. Labeling: Re-label or discard packaging."
+  }
+};
+
+function HACCPView({ user, t }: { user: User, t: any }) {
+  const [plan, setPlan] = useState<HACCPPlan | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState<any[]>([]);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isSelectingTemplate, setIsSelectingTemplate] = useState(false);
+  const [activeTab, setActiveTab] = useState(1);
+
+  const tabs = [
+    { id: 1, label: t.haccp_tabs[0], field: "product_description" },
+    { id: 2, label: t.haccp_tabs[1], field: "flow_diagram" },
+    { id: 3, label: t.haccp_tabs[2], field: "hazard_analysis" },
+    { id: 4, label: t.haccp_tabs[3], field: "ccp_determination" },
+    { id: 5, label: t.haccp_tabs[4], field: "critical_limits" },
+    { id: 6, label: t.haccp_tabs[5], field: "monitoring_procedures" },
+    { id: 7, label: t.haccp_tabs[6], field: "corrective_actions_plan" },
+  ];
+
+  useEffect(() => {
+    fetchPlan();
+  }, []);
+
+  const fetchPlan = () => {
+    api.haccpPlan.get().then(data => setPlan(data));
+  };
+
+  const handleApplyTemplate = async (templateKey: keyof typeof HACCP_TEMPLATES) => {
+    if (!plan) return;
+    const template = HACCP_TEMPLATES[templateKey];
+    const updatedData = {
+      ...plan,
+      ...template,
+      plan_date: new Date().toISOString().split('T')[0],
+      plan_time: new Date().toTimeString().split(' ')[0].substring(0, 5)
+    };
+
+    try {
+      await api.haccpPlan.update(updatedData);
+      alert(`${template.name} template applied!`);
+      setIsSelectingTemplate(false);
+      fetchPlan();
+    } catch (err) {
+      alert('Failed to apply template');
+    }
+  };
+
+  const handleUpdatePlan = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!plan) return;
+    const formData = new FormData(e.currentTarget);
+    
+    setIsSaving(true);
+    const updatedData = {
+      ...plan,
+      product_description: formData.get('product_description') as string || plan.product_description,
+      flow_diagram: formData.get('flow_diagram') as string || plan.flow_diagram,
+      hazard_analysis: formData.get('hazard_analysis') as string || plan.hazard_analysis,
+      ccp_determination: formData.get('ccp_determination') as string || plan.ccp_determination,
+      critical_limits: formData.get('critical_limits') as string || plan.critical_limits,
+      monitoring_procedures: formData.get('monitoring_procedures') as string || plan.monitoring_procedures,
+      corrective_actions_plan: formData.get('corrective_actions_plan') as string || plan.corrective_actions_plan,
+      plan_date: formData.get('plan_date') as string || plan.plan_date,
+      plan_time: formData.get('plan_time') as string || plan.plan_time,
+    };
+    
+    try {
+      await api.haccpPlan.update(updatedData);
+      alert('Plan updated!');
+      setIsEditing(false);
+      fetchPlan();
+    } catch (err) {
+      alert('Failed to update plan');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleAIAnalysis = async () => {
+    if (!plan) return;
+    setIsAnalyzing(true);
+    try {
+      const results = await geminiService.analyzeHazards(plan.product_description);
+      setAiAnalysis(results);
+    } catch (err) {
+      alert("AI Analysis failed");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold text-stone-900">{t.haccp}</h2>
+          <p className="text-stone-500">Hazard Analysis and Critical Control Points documentation.</p>
+        </div>
+        <div className="flex gap-3">
+          <button 
+            onClick={() => setIsSelectingTemplate(true)}
+            className="bg-white border border-stone-200 px-4 py-2 rounded-lg text-stone-600 font-medium hover:bg-stone-50 transition-colors flex items-center gap-2"
+          >
+            <ClipboardList size={18} />
+            Use Template
+          </button>
+          <button 
+            onClick={handleAIAnalysis}
+            disabled={isAnalyzing || !plan}
+            className="bg-purple-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-purple-700 transition-colors flex items-center gap-2 shadow-lg shadow-purple-100 disabled:opacity-50"
+          >
+            <Activity size={18} />
+            {isAnalyzing ? t.analyzing : t.ai_risk_suggestion}
+          </button>
+          <button className="bg-white border border-stone-200 px-4 py-2 rounded-lg text-stone-600 font-medium hover:bg-stone-50 transition-colors">
+            {t.version_history}
+          </button>
+          <button 
+            onClick={() => setIsEditing(true)}
+            className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-emerald-700 transition-colors"
+          >
+            {t.edit_plan}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <div className="lg:col-span-1 space-y-2">
+          {tabs.map(tab => (
+            <HACCPNavItem 
+              key={tab.id} 
+              label={tab.label} 
+              active={activeTab === tab.id} 
+              onClick={() => setActiveTab(tab.id)}
+            />
+          ))}
+        </div>
+
+        <div className="lg:col-span-3 space-y-8">
+          <div className="bg-white rounded-2xl border border-stone-200 p-8 shadow-sm">
+            <div className="max-w-3xl">
+              <h3 className="text-xl font-bold text-stone-900 mb-6">{tabs.find(t => t.id === activeTab)?.label.split('. ')[1]}</h3>
+              {plan ? (
+                <div className="space-y-6">
+                  <section>
+                    <h4 className="text-sm font-bold text-stone-400 uppercase tracking-wider mb-2">Content</h4>
+                    <p className="text-stone-900 font-medium whitespace-pre-wrap">
+                      {(plan as any)[tabs.find(t => t.id === activeTab)?.field || 'product_description'] || 'No content yet.'}
+                    </p>
+                  </section>
+                  <section>
+                    <h4 className="text-sm font-bold text-stone-400 uppercase tracking-wider mb-2">Plan Date & Time</h4>
+                    <p className="text-stone-900 font-medium">
+                      {plan.plan_date || 'N/A'} at {plan.plan_time || 'N/A'}
+                    </p>
+                  </section>
+                  <section>
+                    <h4 className="text-sm font-bold text-stone-400 uppercase tracking-wider mb-2">Last Updated</h4>
+                    <p className="text-stone-600 leading-relaxed">
+                      {new Date(plan.updated_at).toLocaleString()} (Version {plan.version})
+                    </p>
+                  </section>
+                </div>
+              ) : (
+                <p className="text-stone-400 italic">No plan data found.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Edit Plan Modal */}
+          <AnimatePresence>
+            {isEditing && plan && (
+              <div className="fixed inset-0 bg-stone-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden"
+                >
+                  <div className="p-6 border-b border-stone-100 flex justify-between items-center">
+                    <h3 className="text-xl font-bold text-stone-900">Edit HACCP Plan - {tabs.find(t => t.id === activeTab)?.label.split('. ')[1]}</h3>
+                    <button onClick={() => setIsEditing(false)} className="text-stone-400 hover:text-stone-600">
+                      <X size={24} />
+                    </button>
+                  </div>
+                  <form onSubmit={handleUpdatePlan} className="p-6 space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-stone-700 mb-1">Plan Date</label>
+                        <input 
+                          name="plan_date" 
+                          type="date" 
+                          defaultValue={plan.plan_date || ''}
+                          className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-stone-700 mb-1">Plan Time</label>
+                        <input 
+                          name="plan_time" 
+                          type="time" 
+                          defaultValue={plan.plan_time || ''}
+                          className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-stone-700 mb-1">
+                        {tabs.find(t => t.id === activeTab)?.label.split('. ')[1]}
+                      </label>
+                      <textarea 
+                        name={tabs.find(t => t.id === activeTab)?.field} 
+                        defaultValue={(plan as any)[tabs.find(t => t.id === activeTab)?.field || 'product_description']}
+                        required 
+                        rows={10}
+                        className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none resize-none font-mono text-sm"
+                      />
+                    </div>
+                    <div className="pt-4 flex gap-3">
+                      <button type="button" onClick={() => setIsEditing(false)} className="flex-1 px-4 py-2 border border-stone-200 rounded-lg text-stone-600 font-medium hover:bg-stone-50 transition-colors">Cancel</button>
+                      <button 
+                        type="submit" 
+                        disabled={isSaving}
+                        className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {isSaving ? (
+                          <>
+                            <RefreshCw size={18} className="animate-spin" />
+                            Saving...
+                          </>
+                        ) : 'Save Changes'}
+                      </button>
+                    </div>
+                  </form>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+          
+          <AnimatePresence>
+            {isSelectingTemplate && (
+              <div className="fixed inset-0 bg-stone-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden"
+                >
+                  <div className="p-6 border-b border-stone-100 flex justify-between items-center">
+                    <h3 className="text-xl font-bold text-stone-900">Select HACCP Template</h3>
+                    <button onClick={() => setIsSelectingTemplate(false)} className="text-stone-400 hover:text-stone-600">
+                      <X size={24} />
+                    </button>
+                  </div>
+                  <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {Object.entries(HACCP_TEMPLATES).map(([key, template]) => (
+                      <button 
+                        key={key}
+                        onClick={() => handleApplyTemplate(key as keyof typeof HACCP_TEMPLATES)}
+                        className="text-left p-0 rounded-2xl border border-stone-200 hover:border-emerald-500 hover:bg-emerald-50 transition-all group overflow-hidden"
+                      >
+                        <div className="h-32 w-full overflow-hidden">
+                          <img 
+                            src={template.image} 
+                            alt={template.name} 
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                        <div className="p-6">
+                          <h4 className="font-bold text-stone-900 mb-1">{template.name}</h4>
+                          <p className="text-xs text-stone-500 line-clamp-2">{template.product_description}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="p-6 bg-stone-50 border-t border-stone-100 flex justify-end">
+                    <button 
+                      onClick={() => setIsSelectingTemplate(false)}
+                      className="px-4 py-2 text-stone-600 font-medium hover:text-stone-900"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+
+          {aiAnalysis.length > 0 && (
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-purple-50 rounded-2xl border border-purple-100 p-8 shadow-sm"
+            >
+              <h3 className="text-xl font-bold text-purple-900 mb-6 flex items-center gap-2">
+                <ShieldCheck className="text-purple-600" />
+                AI Suggested Hazard Analysis
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {aiAnalysis.map((h, i) => (
+                  <div key={i} className="bg-white p-4 rounded-xl border border-purple-100 shadow-sm">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 bg-purple-100 text-purple-700 rounded">
+                        {h.type}
+                      </span>
+                    </div>
+                    <p className="font-bold text-stone-900 text-sm mb-1">{h.hazard}</p>
+                    <p className="text-xs text-stone-500 leading-relaxed">Control: {h.control_measure}</p>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HACCPNavItem({ label, active, onClick }: { label: string, active?: boolean, onClick: () => void }) {
+  return (
+    <button 
+      onClick={onClick}
+      className={cn(
+        "w-full text-left px-4 py-3 rounded-xl font-medium transition-all",
+        active ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : "text-stone-500 hover:bg-stone-100"
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+function LandingPage({ t, onSignIn, language, setLanguage, onRegister }: { t: any, onSignIn: () => void, language: Language, setLanguage: (l: Language) => void, onRegister: (e: React.FormEvent<HTMLFormElement>) => void }) {
+  const [isRegistering, setIsRegistering] = useState(false);
+
+  return (
+    <div className="min-h-screen bg-stone-50 font-sans selection:bg-emerald-100 selection:text-emerald-900">
+      {/* Navigation */}
+      <nav className="fixed top-0 w-full bg-white/80 backdrop-blur-md border-b border-stone-200 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex flex-col">
+              <div className="flex items-center gap-2">
+                <div className="bg-emerald-600 p-1.5 rounded-lg">
+                  <ShieldCheck className="w-6 h-6 text-white" />
+                </div>
+                <span className="text-xl font-bold text-stone-900 tracking-tight">SafeFlow</span>
+              </div>
+              <span className="text-[10px] font-medium text-stone-400 uppercase tracking-wider leading-none mt-0.5">Food facility HACCP management platform</span>
+            </div>
+            
+            <div className="hidden md:flex items-center gap-8">
+              <a href="#features" className="text-sm font-medium text-stone-500 hover:text-stone-900 transition-colors">{t.features}</a>
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-stone-100 rounded-lg">
+                <Globe size={14} className="text-stone-400" />
+                <select 
+                  value={language} 
+                  onChange={(e) => setLanguage(e.target.value as Language)}
+                  className="bg-transparent text-xs font-medium text-stone-600 outline-none cursor-pointer"
+                >
+                  <option value="en">EN</option>
+                  <option value="ru">RU</option>
+                  <option value="az">AZ</option>
+                </select>
+              </div>
+              <button 
+                onClick={onSignIn}
+                className="text-sm font-semibold text-stone-600 hover:text-stone-900 transition-colors"
+              >
+                {t.sign_in}
+              </button>
+              <button 
+                onClick={() => setIsRegistering(true)}
+                className="bg-emerald-600 text-white px-5 py-2 rounded-full text-sm font-semibold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200/50"
+              >
+                {t.register_company}
+              </button>
+            </div>
+            
+            <button className="md:hidden text-stone-500">
+              <Menu size={24} />
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      {/* Hero Section */}
+      <section className="pt-32 pb-20 lg:pt-48 lg:pb-32 overflow-hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            <motion.div
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.6 }}
+            >
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-700 text-xs font-bold uppercase tracking-wider mb-6">
+                <Activity size={14} />
+                {t.safe_flow_desc}
+              </div>
+              <h1 className="text-5xl lg:text-7xl font-bold text-stone-900 leading-[1.1] tracking-tight mb-6">
+                {t.hero_title}
+              </h1>
+              <p className="text-xl text-stone-500 leading-relaxed mb-10 max-w-xl">
+                {t.hero_subtitle}
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4">
+                <button 
+                  onClick={() => setIsRegistering(true)}
+                  className="bg-emerald-600 text-white px-8 py-4 rounded-full text-lg font-bold hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-200/50 flex items-center justify-center gap-2 group"
+                >
+                  {t.get_started}
+                  <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
+                </button>
+                <button 
+                  onClick={onSignIn}
+                  className="bg-white border border-stone-200 text-stone-900 px-8 py-4 rounded-full text-lg font-bold hover:bg-stone-50 transition-all flex items-center justify-center"
+                >
+                  {t.sign_in}
+                </button>
+              </div>
+            </motion.div>
+            
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.8, delay: 0.2 }}
+              className="relative"
+            >
+              <div className="relative z-10 bg-white rounded-3xl shadow-2xl border border-stone-200 overflow-hidden">
+                <img 
+                  src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1200&q=80" 
+                  alt="SafeFlow Food Safety" 
+                  className="w-full h-auto"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+              <div className="absolute -top-6 -right-6 w-32 h-32 bg-emerald-100 rounded-full blur-3xl opacity-50"></div>
+              <div className="absolute -bottom-10 -left-10 w-48 h-48 bg-blue-100 rounded-full blur-3xl opacity-50"></div>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* Registration Modal */}
+      <AnimatePresence>
+        {isRegistering && (
+          <div className="fixed inset-0 bg-stone-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
+            >
+              <div className="p-6 border-b border-stone-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-stone-900">{t.register_company}</h3>
+                <button onClick={() => setIsRegistering(false)} className="text-stone-400 hover:text-stone-600">
+                  <X size={24} />
+                </button>
+              </div>
+              <form onSubmit={(e) => { onRegister(e); setIsRegistering(false); }} className="p-6 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.company_name}</label>
+                    <input name="companyName" required className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.industry_type}</label>
+                    <select name="industryType" className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none">
+                      <option value="Catering">Catering</option>
+                      <option value="Restaurant">Restaurant</option>
+                      <option value="Food Production">Food Production</option>
+                      <option value="Retail">Retail</option>
+                      <option value="Logistics">Logistics</option>
+                      <option value="Farm">Farm</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.admin_name}</label>
+                    <input name="adminName" required className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.admin_email}</label>
+                    <input name="adminEmail" type="email" required className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.admin_password}</label>
+                    <input name="adminPassword" type="password" required className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" />
+                  </div>
+                </div>
+                <div className="pt-4">
+                  <button 
+                    type="submit" 
+                    className="w-full bg-emerald-600 text-white py-3 rounded-lg font-bold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-200"
+                  >
+                    {t.register_company}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Social Proof */}
+      <section className="py-12 bg-white border-y border-stone-100">
+        <div className="max-w-7xl mx-auto px-4 text-center">
+          <p className="text-sm font-bold text-stone-400 uppercase tracking-widest mb-8">{t.trusted_by}</p>
+          <div className="flex flex-wrap justify-center gap-8 md:gap-16 opacity-40 grayscale">
+            <div className="text-2xl font-black text-stone-900 italic">FOODCORP</div>
+            <div className="text-2xl font-black text-stone-900 italic">FRESHMART</div>
+            <div className="text-2xl font-black text-stone-900 italic">SAFEKITCHEN</div>
+            <div className="text-2xl font-black text-stone-900 italic">ECOFARM</div>
+          </div>
+        </div>
+      </section>
+
+      {/* Farm Section */}
+      <section className="py-24 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            <div className="order-2 lg:order-1">
+              <div className="relative rounded-3xl overflow-hidden shadow-2xl">
+                <img 
+                  src="https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=1200&q=80" 
+                  alt="Modern Farm" 
+                  className="w-full h-[500px] object-cover"
+                  referrerPolicy="no-referrer"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-8">
+                  <p className="text-white font-medium italic">"Ensuring safety from the very first step of the supply chain."</p>
+                </div>
+              </div>
+            </div>
+            <div className="order-1 lg:order-2">
+              <h2 className="text-4xl font-bold text-stone-900 mb-6">Farm-to-Fork Traceability</h2>
+              <p className="text-lg text-stone-500 leading-relaxed mb-8">
+                Our platform bridges the gap between agricultural production and consumer safety. Track pesticide controls, soil testing, and harvest hygiene directly within your HACCP ecosystem.
+              </p>
+              <ul className="space-y-4">
+                {[
+                  "Automated soil & water testing logs",
+                  "Pesticide & fertilizer application tracking",
+                  "Livestock health & vaccination records",
+                  "Harvest hygiene & transport monitoring"
+                ].map((item, i) => (
+                  <li key={i} className="flex items-center gap-3 text-stone-700 font-medium">
+                    <CheckCircle2 className="text-emerald-500 shrink-0" size={20} />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Features */}
+      <section id="features" className="py-24 lg:py-32">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-20">
+            <h2 className="text-4xl font-bold text-stone-900 mb-6">{t.features}</h2>
+            <p className="text-lg text-stone-500 leading-relaxed">
+              Everything you need to manage food safety in one place. Built for compliance, designed for ease of use.
+            </p>
+          </div>
+          
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+            <FeatureCard 
+              icon={<FileText className="w-6 h-6 text-emerald-600" />}
+              title={t.feature_haccp_title}
+              desc={t.feature_haccp_desc}
+            />
+            <FeatureCard 
+              icon={<ClipboardList className="w-6 h-6 text-blue-600" />}
+              title={t.feature_journals_title}
+              desc={t.feature_journals_desc}
+            />
+            <FeatureCard 
+              icon={<Users className="w-6 h-6 text-purple-600" />}
+              title={t.feature_staff_title}
+              desc={t.feature_staff_desc}
+            />
+            <FeatureCard 
+              icon={<Activity className="w-6 h-6 text-orange-600" />}
+              title={t.feature_analytics_title}
+              desc={t.feature_analytics_desc}
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* CTA Section */}
+      <section className="py-24 lg:py-32 bg-stone-900 relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-emerald-500 rounded-full blur-[120px]"></div>
+        </div>
+        
+        <div className="max-w-7xl mx-auto px-4 text-center relative z-10">
+          <h2 className="text-4xl lg:text-5xl font-bold text-white mb-6">{t.ready_to_start}</h2>
+          <p className="text-xl text-stone-400 mb-12 max-w-2xl mx-auto">
+            {t.join_thousands}
+          </p>
+          <button 
+            onClick={onSignIn}
+            className="bg-emerald-600 text-white px-10 py-5 rounded-full text-xl font-bold hover:bg-emerald-700 transition-all shadow-2xl shadow-emerald-900/50"
+          >
+            {t.get_started}
+          </button>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="py-12 bg-white border-t border-stone-200">
+        <div className="max-w-7xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-6">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-6 h-6 text-emerald-600" />
+            <span className="text-lg font-bold text-stone-900">SafeFlow HACCP</span>
+          </div>
+          <p className="text-stone-400 text-sm">© 2024 SafeFlow Compliance. All rights reserved.</p>
+          <div className="flex gap-6">
+            <a href="#" className="text-stone-400 hover:text-stone-900 transition-colors">Privacy</a>
+            <a href="#" className="text-stone-400 hover:text-stone-900 transition-colors">Terms</a>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+function FeatureCard({ icon, title, desc }: { icon: React.ReactNode, title: string, desc: string }) {
+  return (
+    <div className="bg-white p-8 rounded-3xl border border-stone-200 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all">
+      <div className="bg-stone-50 w-12 h-12 rounded-2xl flex items-center justify-center mb-6">
+        {icon}
+      </div>
+      <h3 className="text-xl font-bold text-stone-900 mb-4">{title}</h3>
+      <p className="text-stone-500 leading-relaxed">{desc}</p>
+    </div>
+  );
+}
+
+function UsersView({ user, t }: { user: User, t: any }) {
+  const [users, setUsers] = useState<User[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isAdding, setIsAdding] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    fetchUsers();
+    if (user.role === 'SUPER_ADMIN') {
+      api.companies.list().then(setCompanies);
+    }
+  }, []);
+
+  const fetchUsers = () => {
+    api.users.list().then(data => {
+      setUsers(data);
+      setLoading(false);
+    });
+  };
+
+  const handleAddUser = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const name = formData.get('name') as string;
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
+    const role = formData.get('role') as string;
+    const company_id = formData.get('company_id') ? Number(formData.get('company_id')) : undefined;
+
+    setIsSaving(true);
+    try {
+      await api.users.create({ name, email, password, role, company_id });
+      alert('User added!');
+      setIsAdding(false);
+      fetchUsers();
+    } catch (err) {
+      alert('Failed to add user');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleEditUser = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    const formData = new FormData(e.currentTarget);
+    const name = formData.get('name') as string;
+    const email = formData.get('email') as string;
+    const role = formData.get('role') as string;
+    const company_id = formData.get('company_id') ? Number(formData.get('company_id')) : undefined;
+
+    setIsSaving(true);
+    try {
+      await api.users.update(editingUser.id, { name, email, role, company_id });
+      alert('User updated!');
+      setEditingUser(null);
+      fetchUsers();
+    } catch (err) {
+      alert('Failed to update user');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteUser = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this user?')) return;
+    try {
+      await api.users.delete(id);
+      fetchUsers();
+    } catch (err) {
+      alert('Failed to delete user');
+    }
+  };
+
+  const handleToggleActive = async (u: User) => {
+    try {
+      await api.users.update(u.id, { is_active: !u.is_active });
+      fetchUsers();
+    } catch (err) {
+      alert('Failed to toggle status');
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold text-stone-900">{t.staff}</h2>
+          <p className="text-stone-500">Manage employee access and roles.</p>
+        </div>
+        <button 
+          onClick={() => setIsAdding(true)}
+          className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 hover:bg-emerald-700 transition-colors"
+        >
+          <Plus size={18} />
+          {t.add_employee}
+        </button>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-sm">
+        <table className="w-full text-left border-collapse">
+          <thead className="bg-stone-50 border-b border-stone-200">
+            <tr>
+              <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-widest">Name</th>
+              <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-widest">Role</th>
+              <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-widest">Email</th>
+              <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-widest">Status</th>
+              <th className="px-6 py-4 text-xs font-bold text-stone-400 uppercase tracking-widest text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-stone-100">
+            {loading ? (
+              <tr>
+                <td colSpan={5} className="px-6 py-12 text-center text-stone-400">Loading staff...</td>
+              </tr>
+            ) : users.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="px-6 py-12 text-center text-stone-400">No staff members found.</td>
+              </tr>
+            ) : users.map(u => (
+              <tr key={u.id} className={cn("hover:bg-stone-50 transition-colors", !u.is_active && "opacity-60")}>
+                <td className="px-6 py-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-stone-100 rounded-full flex items-center justify-center text-stone-600 font-bold text-xs uppercase">
+                      {u.name[0]}
+                    </div>
+                    <span className="font-semibold text-stone-900">{u.name}</span>
+                  </div>
+                </td>
+                <td className="px-6 py-4">
+                  <span className="text-sm text-stone-600 font-medium">{u.role.replace('_', ' ')}</span>
+                </td>
+                <td className="px-6 py-4">
+                  <span className="text-sm text-stone-500">{u.email}</span>
+                </td>
+                <td className="px-6 py-4">
+                  <button 
+                    onClick={() => handleToggleActive(u)}
+                    className={cn(
+                      "flex items-center gap-2 px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all",
+                      u.is_active 
+                        ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200" 
+                        : "bg-stone-100 text-stone-500 hover:bg-stone-200"
+                    )}
+                  >
+                    {u.is_active ? (
+                      <><ToggleRight size={14} /> Active</>
+                    ) : (
+                      <><ToggleLeft size={14} /> Passive</>
+                    )}
+                  </button>
+                </td>
+                <td className="px-6 py-4 text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    <button 
+                      onClick={() => setEditingUser(u)}
+                      className="p-2 text-stone-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                      title="Edit User"
+                    >
+                      <Edit size={16} />
+                    </button>
+                    {u.id !== user.id && (
+                      <button 
+                        onClick={() => handleDeleteUser(u.id)}
+                        className="p-2 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                        title="Delete User"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Add User Modal */}
+      <AnimatePresence>
+        {isAdding && (
+          <div className="fixed inset-0 bg-stone-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
+            >
+              <div className="p-6 border-b border-stone-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-stone-900">Add New Employee</h3>
+                <button onClick={() => setIsAdding(false)} className="text-stone-400 hover:text-stone-600">
+                  <X size={24} />
+                </button>
+              </div>
+              <form onSubmit={handleAddUser} className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Full Name</label>
+                  <input name="name" required className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" placeholder="e.g. Jane Doe" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Email Address</label>
+                  <input name="email" type="email" required className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" placeholder="jane@company.com" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Initial Password</label>
+                  <input name="password" type="password" required className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" placeholder="••••••••" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Role</label>
+                  <select name="role" className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none">
+                    <option value="EMPLOYEE">Employee / Operator</option>
+                    <option value="HACCP_MANAGER">HACCP Manager</option>
+                    <option value="COMPANY_ADMIN">Company Admin</option>
+                    <option value="INSPECTOR">Inspector</option>
+                  </select>
+                </div>
+                {user.role === 'SUPER_ADMIN' && (
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Assign to Company</label>
+                    <select name="company_id" className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none">
+                      <option value="">Global (No Company)</option>
+                      {companies.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div className="pt-4 flex gap-3">
+                  <button type="button" onClick={() => setIsAdding(false)} className="flex-1 px-4 py-2 border border-stone-200 rounded-lg text-stone-600 font-medium hover:bg-stone-50 transition-colors">Cancel</button>
+                  <button 
+                    type="submit" 
+                    disabled={isSaving}
+                    className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isSaving ? (
+                      <>
+                        <RefreshCw size={18} className="animate-spin" />
+                        Saving...
+                      </>
+                    ) : 'Add Employee'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit User Modal */}
+      <AnimatePresence>
+        {editingUser && (
+          <div className="fixed inset-0 bg-stone-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
+            >
+              <div className="p-6 border-b border-stone-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-stone-900">Edit Employee</h3>
+                <button onClick={() => setEditingUser(null)} className="text-stone-400 hover:text-stone-600">
+                  <X size={24} />
+                </button>
+              </div>
+              <form onSubmit={handleEditUser} className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Full Name</label>
+                  <input name="name" defaultValue={editingUser.name} required className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Email Address</label>
+                  <input name="email" type="email" defaultValue={editingUser.email} required className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Role</label>
+                  <select name="role" defaultValue={editingUser.role} className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none">
+                    <option value="EMPLOYEE">Employee / Operator</option>
+                    <option value="HACCP_MANAGER">HACCP Manager</option>
+                    <option value="COMPANY_ADMIN">Company Admin</option>
+                    <option value="INSPECTOR">Inspector</option>
+                  </select>
+                </div>
+                {user.role === 'SUPER_ADMIN' && (
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Assign to Company</label>
+                    <select name="company_id" defaultValue={editingUser.company_id || ''} className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none">
+                      <option value="">Global (No Company)</option>
+                      {companies.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div className="pt-4 flex gap-3">
+                  <button type="button" onClick={() => setEditingUser(null)} className="flex-1 px-4 py-2 border border-stone-200 rounded-lg text-stone-600 font-medium hover:bg-stone-50 transition-colors">Cancel</button>
+                  <button 
+                    type="submit" 
+                    disabled={isSaving}
+                    className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isSaving ? (
+                      <>
+                        <RefreshCw size={18} className="animate-spin" />
+                        Saving...
+                      </>
+                    ) : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function CompaniesView({ user, t }: { user: User, t: any }) {
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isUpdating, setIsUpdating] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetchCompanies();
+  }, []);
+
+  const fetchCompanies = () => {
+    setLoading(true);
+    api.companies.list().then(data => {
+      setCompanies(data);
+      setLoading(false);
+    });
+  };
+
+  const handleUpdateStatus = async (id: number, status: 'APPROVED' | 'SUSPENDED') => {
+    setIsUpdating(id);
+    try {
+      await api.admin.updateCompany(id, { status });
+      fetchCompanies();
+    } catch (err) {
+      alert('Failed to update status');
+    } finally {
+      setIsUpdating(null);
+    }
+  };
+
+  const handleChangeTariff = async (id: number, tariff_plan: 'BASIC' | 'PRO' | 'ENTERPRISE') => {
+    setIsUpdating(id);
+    try {
+      await api.admin.updateCompany(id, { tariff_plan });
+      fetchCompanies();
+    } catch (err) {
+      alert('Failed to update tariff');
+    } finally {
+      setIsUpdating(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold text-stone-900">{t.companies}</h2>
+          <p className="text-stone-500">Manage multi-tenant company accounts.</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {loading ? (
+          <div className="col-span-full py-12 text-center text-stone-400">Loading companies...</div>
+        ) : companies.length === 0 ? (
+          <div className="col-span-full py-12 text-center text-stone-400">No companies found.</div>
+        ) : companies.map(c => (
+          <div key={c.id} className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm flex flex-col">
+            <div className="flex justify-between items-start mb-4">
+              <div className="flex items-center gap-3">
+                <div className="bg-emerald-50 p-3 rounded-xl">
+                  <Building2 className="text-emerald-600" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-stone-900 text-lg">{c.name}</h3>
+                  <p className="text-sm text-stone-500">{c.industry_type}</p>
+                </div>
+              </div>
+              <div className="flex flex-col items-end gap-2">
+                <span className={cn(
+                  "px-2 py-1 text-[10px] font-bold rounded uppercase tracking-wider",
+                  c.status === 'APPROVED' ? "bg-emerald-100 text-emerald-700" :
+                  c.status === 'PENDING' ? "bg-amber-100 text-amber-700" :
+                  "bg-rose-100 text-rose-700"
+                )}>
+                  {c.status === 'APPROVED' ? t.approved : c.status === 'PENDING' ? t.pending_approval : t.suspended}
+                </span>
+                <span className="px-2 py-1 bg-blue-100 text-blue-700 text-[10px] font-bold rounded uppercase tracking-wider">
+                  {c.tariff_plan}
+                </span>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4 mt-4 py-4 border-y border-stone-100">
+              <div>
+                <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1">Responsible Person</p>
+                <p className="text-sm font-medium text-stone-900">{c.responsible_person}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1">Reg Number</p>
+                <p className="text-sm font-medium text-stone-900">{c.reg_number}</p>
+              </div>
+              <div className="col-span-2">
+                <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1">Address</p>
+                <p className="text-sm font-medium text-stone-900">{c.address}</p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap gap-2">
+              {c.status === 'PENDING' && (
+                <button 
+                  onClick={() => handleUpdateStatus(c.id, 'APPROVED')}
+                  disabled={isUpdating === c.id}
+                  className="flex-1 bg-emerald-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                >
+                  {t.approve}
+                </button>
+              )}
+              {c.status === 'APPROVED' && (
+                <button 
+                  onClick={() => handleUpdateStatus(c.id, 'SUSPENDED')}
+                  disabled={isUpdating === c.id}
+                  className="flex-1 bg-rose-50 text-rose-600 py-2 rounded-lg text-sm font-bold hover:bg-rose-100 transition-colors disabled:opacity-50"
+                >
+                  {t.suspend}
+                </button>
+              )}
+              {c.status === 'SUSPENDED' && (
+                <button 
+                  onClick={() => handleUpdateStatus(c.id, 'APPROVED')}
+                  disabled={isUpdating === c.id}
+                  className="flex-1 bg-emerald-50 text-emerald-600 py-2 rounded-lg text-sm font-bold hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                >
+                  Re-activate
+                </button>
+              )}
+              
+              <select 
+                value={c.tariff_plan}
+                onChange={(e) => handleChangeTariff(c.id, e.target.value as any)}
+                disabled={isUpdating === c.id}
+                className="flex-1 bg-white border border-stone-200 py-2 rounded-lg text-sm font-bold text-stone-600 outline-none disabled:opacity-50"
+              >
+                <option value="BASIC">{t.tariff_basic}</option>
+                <option value="PRO">{t.tariff_pro}</option>
+                <option value="ENTERPRISE">{t.tariff_enterprise}</option>
+              </select>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PlatformSettingsView({ user, t }: { user: User, t: any }) {
+  const [settings, setSettings] = useState({
+    platformName: 'SafeFlow HACCP',
+    primaryColor: '#059669',
+    enableRegistration: true,
+    maintenanceMode: false
+  });
+
+  const handleSave = () => {
+    alert('Platform settings updated!');
+  };
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div>
+        <h2 className="text-2xl font-bold text-stone-900">Platform Settings</h2>
+        <p className="text-stone-500">Global configuration for the SafeFlow platform.</p>
+      </div>
+
+      <div className="bg-white p-8 rounded-2xl border border-stone-200 shadow-sm space-y-6">
+        <div>
+          <label className="block text-sm font-medium text-stone-700 mb-1">Platform Name</label>
+          <input 
+            value={settings.platformName}
+            onChange={e => setSettings({...settings, platformName: e.target.value})}
+            className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" 
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-stone-700 mb-1">Primary Brand Color</label>
+          <div className="flex gap-3">
+            <input 
+              type="color"
+              value={settings.primaryColor}
+              onChange={e => setSettings({...settings, primaryColor: e.target.value})}
+              className="h-10 w-20 rounded border border-stone-200 cursor-pointer" 
+            />
+            <input 
+              value={settings.primaryColor}
+              onChange={e => setSettings({...settings, primaryColor: e.target.value})}
+              className="flex-1 px-4 py-2 rounded-lg border border-stone-200 outline-none font-mono" 
+            />
+          </div>
+        </div>
+
+        <div className="space-y-4 pt-4 border-t border-stone-100">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-bold text-stone-900">Enable Public Registration</p>
+              <p className="text-xs text-stone-500">Allow new companies to register via landing page.</p>
+            </div>
+            <button 
+              onClick={() => setSettings({...settings, enableRegistration: !settings.enableRegistration})}
+              className={cn(
+                "w-12 h-6 rounded-full transition-colors relative",
+                settings.enableRegistration ? "bg-emerald-600" : "bg-stone-200"
+              )}
+            >
+              <div className={cn(
+                "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                settings.enableRegistration ? "left-7" : "left-1"
+              )} />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-bold text-stone-900">Maintenance Mode</p>
+              <p className="text-xs text-stone-500">Disable access for all users except Super Admins.</p>
+            </div>
+            <button 
+              onClick={() => setSettings({...settings, maintenanceMode: !settings.maintenanceMode})}
+              className={cn(
+                "w-12 h-6 rounded-full transition-colors relative",
+                settings.maintenanceMode ? "bg-rose-600" : "bg-stone-200"
+              )}
+            >
+              <div className={cn(
+                "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                settings.maintenanceMode ? "left-7" : "left-1"
+              )} />
+            </button>
+          </div>
+        </div>
+
+        <div className="pt-6">
+          <button 
+            onClick={handleSave}
+            className="w-full bg-stone-900 text-white py-3 rounded-lg font-bold hover:bg-stone-800 transition-colors"
+          >
+            Save Platform Config
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

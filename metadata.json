@@ -1,0 +1,7 @@
+{
+  "name": "SafeFlow HACCP",
+  "description": "Multi-tenant Cloud-Based HACCP Management System for food safety compliance, featuring electronic journals, CCP monitoring, and automated alerts.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
