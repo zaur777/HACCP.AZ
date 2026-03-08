@@ -9,6 +9,8 @@ import {
   Plus, 
   CheckCircle2, 
   AlertTriangle, 
+  AlertCircle,
+  Check,
   Clock,
   Building2,
   ShieldCheck,
@@ -90,27 +92,37 @@ export default function App() {
     }
   };
 
-  const handleRegisterCompany = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleRegisterCompany = async (e: React.FormEvent<HTMLFormElement>): Promise<boolean> => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    const formData = new FormData(form);
     const data = {
-      companyName: formData.get('companyName'),
-      adminName: formData.get('adminName'),
-      adminEmail: formData.get('adminEmail'),
-      adminPassword: formData.get('adminPassword'),
-      industryType: formData.get('industryType'),
+      companyName: formData.get('companyName') as string,
+      adminName: formData.get('adminName') as string,
+      adminEmail: formData.get('adminEmail') as string,
+      adminPassword: formData.get('adminPassword') as string,
+      industryType: formData.get('industryType') as string,
     };
+
+    if (!data.companyName || !data.adminEmail || !data.adminPassword) {
+      alert("Please fill in all required fields.");
+      return false;
+    }
 
     try {
       const res = await api.auth.registerCompany(data);
       if (res.success) {
-        alert(t.registration_success);
+        alert(t.registration_success || "Registration successful! Please wait for approval.");
         setShowLanding(true);
+        return true;
       } else {
         alert(res.error || 'Registration failed');
+        return false;
       }
-    } catch (err) {
-      alert('Registration failed');
+    } catch (err: any) {
+      console.error('Registration error:', err);
+      alert('Registration failed: ' + (err.message || 'Unknown error'));
+      return false;
     }
   };
 
@@ -534,10 +546,10 @@ function Dashboard({ user, t }: { user: User, t: any }) {
 
       {user.role === 'SUPER_ADMIN' && adminStats ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <StatCard icon={<Building2 className="text-emerald-600" />} label={t.total_companies} value={adminStats.totalCompanies} color="emerald" />
-          <StatCard icon={<Clock className="text-amber-600" />} label={t.pending_registrations} value={adminStats.pendingCompanies} color="amber" />
-          <StatCard icon={<Users className="text-blue-600" />} label="Total Users" value={adminStats.totalUsers} color="blue" />
-          <StatCard icon={<Activity className="text-purple-600" />} label="Total Logs" value={adminStats.totalLogs} color="purple" />
+          <StatCard icon={<Building2 className="text-emerald-600" />} label={t.total_companies} value={adminStats.totalCompanies} trend="Total" color="emerald" />
+          <StatCard icon={<Clock className="text-amber-600" />} label={t.pending_registrations} value={adminStats.pendingCompanies} trend="Pending" color="amber" />
+          <StatCard icon={<Users className="text-blue-600" />} label="Total Users" value={adminStats.totalUsers} trend="Total" color="blue" />
+          <StatCard icon={<Activity className="text-purple-600" />} label="Total Logs" value={adminStats.totalLogs} trend="Total" color="purple" />
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -1470,7 +1482,7 @@ function HACCPNavItem({ label, active, onClick }: { label: string, active?: bool
   );
 }
 
-function LandingPage({ t, onSignIn, language, setLanguage, onRegister }: { t: any, onSignIn: () => void, language: Language, setLanguage: (l: Language) => void, onRegister: (e: React.FormEvent<HTMLFormElement>) => void }) {
+function LandingPage({ t, onSignIn, language, setLanguage, onRegister }: { t: any, onSignIn: () => void, language: Language, setLanguage: (l: Language) => void, onRegister: (e: React.FormEvent<HTMLFormElement>) => Promise<boolean> }) {
   const [isRegistering, setIsRegistering] = useState(false);
 
   return (
@@ -1597,7 +1609,10 @@ function LandingPage({ t, onSignIn, language, setLanguage, onRegister }: { t: an
                   <X size={24} />
                 </button>
               </div>
-              <form onSubmit={(e) => { onRegister(e); setIsRegistering(false); }} className="p-6 space-y-4">
+              <form onSubmit={async (e) => { 
+                const success = await onRegister(e); 
+                if (success) setIsRegistering(false); 
+              }} className="p-6 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
                     <label className="block text-sm font-medium text-stone-700 mb-1">{t.company_name}</label>

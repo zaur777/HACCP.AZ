@@ -303,10 +303,18 @@ async function startServer() {
 
   app.post("/api/auth/register-company", (req, res) => {
     const { companyName, adminName, adminEmail, adminPassword, industryType } = req.body;
+    console.log("Registration request received:", { companyName, adminName, adminEmail, industryType });
     
     try {
+      if (!companyName || !adminName || !adminEmail || !adminPassword) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
       const existingUser = db.prepare("SELECT id FROM users WHERE email = ?").get(adminEmail);
-      if (existingUser) return res.status(400).json({ error: "Email already registered" });
+      if (existingUser) {
+        console.log("Registration failed: Email already registered", adminEmail);
+        return res.status(400).json({ error: "Email already registered" });
+      }
 
       const companyResult = db.prepare(`
         INSERT INTO companies (name, industry_type, status, tariff_plan) 
@@ -314,6 +322,8 @@ async function startServer() {
       `).run(companyName, industryType);
       
       const companyId = companyResult.lastInsertRowid;
+      console.log("Company created with ID:", companyId);
+
       const hash = bcrypt.hashSync(adminPassword, 10);
       
       db.prepare(`
@@ -321,10 +331,11 @@ async function startServer() {
         VALUES (?, ?, ?, ?, 'COMPANY_ADMIN', 1)
       `).run(companyId, adminEmail, hash, adminName);
 
+      console.log("User created for company:", companyId);
       res.json({ success: true, message: "Registration successful. Waiting for approval." });
     } catch (err) {
       console.error("Registration error:", err);
-      res.status(500).json({ error: "Registration failed" });
+      res.status(500).json({ error: "Registration failed: " + (err instanceof Error ? err.message : String(err)) });
     }
   });
 
