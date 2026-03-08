@@ -62,10 +62,15 @@ async function seedSuperAdmin() {
 }
 
 async function startServer() {
+  console.log("Starting server...");
   const app = express();
   const PORT = 3000;
 
-  // Run auto-seeding in background (don't block server startup)
+  app.get("/api/ping", (req, res) => {
+    res.send("pong");
+  });
+
+  // Run auto-seeding in background
   seedSuperAdmin().catch(err => console.error("Background seeding failed:", err));
 
   app.use(express.json());
@@ -147,21 +152,22 @@ async function startServer() {
       }
 
       // Check company status if not super admin
+      let companyStatus = 'APPROVED';
       if (user.role !== 'SUPER_ADMIN' && user.company_id) {
         const { rows: companyRows } = await pool.query("SELECT status FROM companies WHERE id = $1", [user.company_id]);
         const company = companyRows[0];
 
-        if (company && company.status === 'PENDING') {
-          return res.status(403).json({ error: "Your company registration is pending approval." });
-        }
-        if (company && company.status === 'SUSPENDED') {
-          return res.status(403).json({ error: "Your company account has been suspended." });
+        if (company) {
+          companyStatus = company.status;
+          if (company.status === 'SUSPENDED') {
+            return res.status(403).json({ error: "Your company account has been suspended." });
+          }
         }
       }
 
-      const token = jwt.sign({ id: user.id, company_id: user.company_id, role: user.role }, JWT_SECRET, { expiresIn: "24h" });
+      const token = jwt.sign({ id: user.id, company_id: user.company_id, role: user.role, company_status: companyStatus }, JWT_SECRET, { expiresIn: "24h" });
       res.cookie("token", token, { httpOnly: true, secure: true, sameSite: "none" });
-      res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role, company_id: user.company_id } });
+      res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role, company_id: user.company_id, company_status: companyStatus } });
     } catch (err) {
       res.status(500).json({ error: "Login failed" });
     }
@@ -173,11 +179,27 @@ async function startServer() {
   });
 
   app.post("/api/auth/register-company", async (req, res) => {
-    const { companyName, adminName, adminEmail, adminPassword, industryType } = req.body;
+    const { 
+      companyName, 
+      regNumber, 
+      address, 
+      responsiblePerson, 
+      adminName, 
+      adminEmail, 
+      adminPassword, 
+      confirmPassword, 
+      industryType 
+    } = req.body;
     
+    console.log(`Registration attempt for company: ${companyName}, admin: ${adminEmail}`);
+
     try {
       if (!companyName || !adminName || !adminEmail || !adminPassword) {
         return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      if (adminPassword !== confirmPassword) {
+        return res.status(400).json({ error: "Passwords do not match" });
       }
 
       const { rows: existingUsers } = await pool.query("SELECT id FROM users WHERE email = $1", [adminEmail]);
@@ -188,9 +210,11 @@ async function startServer() {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
+        
         const companyRes = await client.query(
-          "INSERT INTO companies (name, industry_type, status, tariff_plan) VALUES ($1, $2, 'PENDING', 'BASIC') RETURNING id",
-          [companyName, industryType]
+          `INSERT INTO companies (name, reg_number, address, industry_type, responsible_person, status, tariff_plan) 
+           VALUES ($1, $2, $3, $4, $5, 'PENDING', 'BASIC') RETURNING id`,
+          [companyName, regNumber || null, address || null, industryType, responsiblePerson || null]
         );
         const companyId = companyRes.rows[0].id;
 
@@ -199,17 +223,26 @@ async function startServer() {
           "INSERT INTO users (company_id, email, password_hash, name, role, is_active) VALUES ($1, $2, $3, $4, 'COMPANY_ADMIN', true)",
           [companyId, adminEmail, hash, adminName]
         );
+
+        // Create initial HACCP plan
+        await client.query(
+          "INSERT INTO haccp_plans (company_id, product_description) VALUES ($1, $2)",
+          [companyId, `Initial HACCP plan for ${companyName}`]
+        );
+
         await client.query('COMMIT');
+        console.log(`Registration successful for ${companyName}`);
         res.json({ success: true, message: "Registration successful. Waiting for approval." });
       } catch (err) {
         await client.query('ROLLBACK');
+        console.error("Transaction failed:", err);
         throw err;
       } finally {
         client.release();
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Registration error:", err);
-      res.status(500).json({ error: "Registration failed" });
+      res.status(500).json({ error: "Registration failed: " + (err.message || "Unknown error") });
     }
   });
 
@@ -218,7 +251,14 @@ async function startServer() {
       const { rows } = await pool.query("SELECT id, name, email, role, company_id FROM users WHERE id = $1", [req.user.id]);
       const user = rows[0];
       if (!user) return res.status(404).json({ error: "User not found" });
-      res.json({ user });
+
+      let companyStatus = 'APPROVED';
+      if (user.role !== 'SUPER_ADMIN' && user.company_id) {
+        const { rows: companyRows } = await pool.query("SELECT status FROM companies WHERE id = $1", [user.company_id]);
+        if (companyRows[0]) companyStatus = companyRows[0].status;
+      }
+
+      res.json({ user: { ...user, company_status: companyStatus } });
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch user" });
     }
@@ -583,6 +623,38 @@ async function startServer() {
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: "Failed to trigger backup" });
+    }
+  });
+
+  app.get("/api/backups/:id/download", authenticate, async (req: any, res) => {
+    if (req.user.role !== 'SUPER_ADMIN') return res.status(403).json({ error: "Forbidden" });
+    const { id } = req.params;
+    try {
+      const { rows: backupRows } = await pool.query("SELECT * FROM backups WHERE id = $1", [id]);
+      if (backupRows.length === 0) return res.status(404).json({ error: "Backup not found" });
+
+      // Generate a mock backup file content
+      const companies = await pool.query("SELECT * FROM companies");
+      const users = await pool.query("SELECT * FROM users");
+      const journals = await pool.query("SELECT * FROM journals");
+      const logs = await pool.query("SELECT * FROM logs");
+
+      const backupData = {
+        timestamp: new Date().toISOString(),
+        backup_id: id,
+        data: {
+          companies: companies.rows,
+          users: users.rows,
+          journals: journals.rows,
+          logs: logs.rows
+        }
+      };
+
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename=${backupRows[0].filename}.json`);
+      res.send(JSON.stringify(backupData, null, 2));
+    } catch (err) {
+      res.status(500).json({ error: "Failed to download backup" });
     }
   });
 

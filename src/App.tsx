@@ -98,14 +98,23 @@ export default function App() {
     const formData = new FormData(form);
     const data = {
       companyName: formData.get('companyName') as string,
+      regNumber: formData.get('regNumber') as string,
+      address: formData.get('address') as string,
+      responsiblePerson: formData.get('responsiblePerson') as string,
       adminName: formData.get('adminName') as string,
       adminEmail: formData.get('adminEmail') as string,
       adminPassword: formData.get('adminPassword') as string,
+      confirmPassword: formData.get('confirmPassword') as string,
       industryType: formData.get('industryType') as string,
     };
 
-    if (!data.companyName || !data.adminEmail || !data.adminPassword) {
+    if (!data.companyName || !data.adminEmail || !data.adminPassword || !data.adminName) {
       alert("Please fill in all required fields.");
+      return false;
+    }
+
+    if (data.adminPassword !== data.confirmPassword) {
+      alert(t.passwords_dont_match || "Passwords do not match");
       return false;
     }
 
@@ -216,6 +225,33 @@ export default function App() {
             <p>Demo Credentials:</p>
             <p>admin@safeflow.com / admin123</p>
           </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (user.company_status === 'PENDING') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-stone-50 p-4">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center border border-stone-100"
+        >
+          <div className="bg-amber-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Clock className="text-amber-600 w-8 h-8" />
+          </div>
+          <h2 className="text-2xl font-bold text-stone-900 mb-2">Account Pending Approval</h2>
+          <p className="text-stone-500 mb-8">
+            Your company registration is currently being reviewed by our Super Admin. 
+            You will receive full access once your account is approved.
+          </p>
+          <button 
+            onClick={handleLogout}
+            className="w-full bg-stone-900 text-white font-semibold py-2 rounded-lg hover:bg-stone-800 transition-colors"
+          >
+            {t.logout}
+          </button>
         </motion.div>
       </div>
     );
@@ -1620,8 +1656,12 @@ function LandingPage({ t, onSignIn, language, setLanguage, onRegister }: { t: an
               }} className="p-6 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
-                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.company_name}</label>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.company_name} *</label>
                     <input name="companyName" required className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Registration Number</label>
+                    <input name="regNumber" className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-stone-700 mb-1">{t.industry_type}</label>
@@ -1634,17 +1674,29 @@ function LandingPage({ t, onSignIn, language, setLanguage, onRegister }: { t: an
                       <option value="Farm">Farm</option>
                     </select>
                   </div>
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Address</label>
+                    <input name="address" className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" />
+                  </div>
                   <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.admin_name}</label>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.admin_name} *</label>
                     <input name="adminName" required className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" />
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Responsible Person</label>
+                    <input name="responsiblePerson" className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" />
+                  </div>
                   <div className="col-span-2">
-                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.admin_email}</label>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.admin_email} *</label>
                     <input name="adminEmail" type="email" required className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" />
                   </div>
                   <div className="col-span-2">
                     <label className="block text-sm font-medium text-stone-700 mb-1">{t.admin_password}</label>
                     <input name="adminPassword" type="password" required className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.confirm_password}</label>
+                    <input name="confirmPassword" type="password" required className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" />
                   </div>
                 </div>
                 <div className="pt-4">

@@ -8,6 +8,7 @@ export interface User {
   role: UserRole;
   is_active: boolean;
   created_at: string;
+  company_status?: 'PENDING' | 'APPROVED' | 'SUSPENDED';
 }
 
 export interface Company {
