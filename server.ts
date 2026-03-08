@@ -12,6 +12,10 @@ import { fileURLToPath } from "url";
 
 dotenv.config();
 
+if (!process.env.DB_PASSWORD) {
+  console.warn("DB_PASSWORD is not set in environment variables. Database connection may fail.");
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -21,13 +25,48 @@ const pool = new Pool({
   database: process.env.DB_NAME || "haccp_az",
   user: process.env.DB_USER || "haccp_az",
   password: process.env.DB_PASSWORD,
+  connectionTimeoutMillis: 5000, // 5 second timeout
+  idleTimeoutMillis: 10000,
+});
+
+// Test database connection
+pool.query("SELECT NOW()", (err, res) => {
+  if (err) {
+    console.error("Database connection failed:", err.message);
+  } else {
+    console.log("Database connected successfully at:", res.rows[0].now);
+  }
 });
 
 const JWT_SECRET = process.env.JWT_SECRET || "haccp-secret-key-123";
 
+async function seedSuperAdmin() {
+  try {
+    console.log("Checking for Super Admin in database...");
+    const { rows } = await pool.query("SELECT id FROM users WHERE email = $1", ["admin@safeflow.com"]);
+    console.log(`Found ${rows.length} admin users.`);
+    if (rows.length === 0) {
+      console.log("Super Admin not found. Seeding...");
+      const hash = bcrypt.hashSync("admin123", 10);
+      await pool.query(
+        "INSERT INTO users (email, password_hash, name, role, is_active) VALUES ($1, $2, $3, $4, $5)",
+        ["admin@safeflow.com", hash, "Super Admin", "SUPER_ADMIN", true]
+      );
+      console.log("Super Admin seeded: admin@safeflow.com / admin123");
+    } else {
+      console.log("Super Admin already exists.");
+    }
+  } catch (err) {
+    console.error("Auto-seeding failed:", err);
+  }
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // Run auto-seeding in background (don't block server startup)
+  seedSuperAdmin().catch(err => console.error("Background seeding failed:", err));
 
   app.use(express.json());
   app.use(cookieParser());
@@ -50,35 +89,60 @@ async function startServer() {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
-  // Initialization Route (Seed first Super Admin)
-  app.post("/api/admin/setup", async (req, res) => {
+  app.get("/api/test", (req, res) => {
+    res.send("API is working!");
+  });
+
+  // Debug Route (Remove in production)
+  app.get("/api/debug/db", async (req, res) => {
     try {
-      const { rows } = await pool.query("SELECT id FROM users LIMIT 1");
-      if (rows.length > 0) {
-        return res.status(400).json({ error: "System already initialized." });
-      }
-
-      const hash = bcrypt.hashSync("admin123", 10);
-      await pool.query(
-        "INSERT INTO users (email, password_hash, name, role, is_active) VALUES ($1, $2, $3, $4, $5)",
-        ["admin@safeflow.com", hash, "Super Admin", "SUPER_ADMIN", true]
-      );
-
-      res.json({ success: true, message: "Super Admin created: admin@safeflow.com / admin123" });
+      const dbCheck = await pool.query("SELECT NOW()");
+      const userCheck = await pool.query("SELECT id, email, role FROM users WHERE email = $1", ["admin@safeflow.com"]);
+      const tableCheck = await pool.query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'");
+      
+      res.json({
+        dbConnected: true,
+        dbTime: dbCheck.rows[0].now,
+        envStatus: {
+          hasDbPassword: !!process.env.DB_PASSWORD,
+          dbHost: process.env.DB_HOST || "31.220.80.185",
+          dbUser: process.env.DB_USER || "haccp_az",
+          dbName: process.env.DB_NAME || "haccp_az"
+        },
+        adminExists: userCheck.rows.length > 0,
+        adminDetails: userCheck.rows[0] || null,
+        existingTables: tableCheck.rows.map(r => r.table_name)
+      });
     } catch (err) {
-      res.status(500).json({ error: "Setup failed: " + (err instanceof Error ? err.message : String(err)) });
+      res.status(500).json({
+        dbConnected: false,
+        envStatus: {
+          hasDbPassword: !!process.env.DB_PASSWORD,
+          dbHost: process.env.DB_HOST || "31.220.80.185"
+        },
+        error: err instanceof Error ? err.message : String(err)
+      });
     }
   });
 
   // Auth Routes
   app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;
+    console.log(`Login attempt for: ${email}`);
     
     try {
       const { rows } = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
       const user = rows[0];
 
-      if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+      if (!user) {
+        console.log(`User not found: ${email}`);
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+
+      const isPasswordValid = bcrypt.compareSync(password, user.password_hash);
+      console.log(`Password valid for ${email}: ${isPasswordValid}`);
+
+      if (!isPasswordValid) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
