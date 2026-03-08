@@ -1228,12 +1228,17 @@ function HACCPView({ user, t }: { user: User, t: any }) {
 
   const handleAIAnalysis = async () => {
     if (!plan) return;
+    if (!plan.product_description || plan.product_description.trim().length < 10) {
+      alert("Please provide a more detailed product description before using AI analysis.");
+      return;
+    }
+    
     setIsAnalyzing(true);
     try {
       const results = await geminiService.analyzeHazards(plan.product_description);
       setAiAnalysis(results);
-    } catch (err) {
-      alert("AI Analysis failed");
+    } catch (err: any) {
+      alert(err.message || "AI Analysis failed");
     } finally {
       setIsAnalyzing(false);
     }
