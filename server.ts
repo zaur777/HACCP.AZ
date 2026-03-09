@@ -134,19 +134,19 @@ async function startServer() {
   // Auth Routes
   app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;
-    console.log(`Login attempt for: ${email}`);
+    console.log(`[AUTH] Login attempt for: ${email}`);
     
     try {
       const { rows } = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
       const user = rows[0];
 
       if (!user) {
-        console.log(`User not found: ${email}`);
+        console.log(`[AUTH] User not found: ${email}`);
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
       const isPasswordValid = bcrypt.compareSync(password, user.password_hash);
-      console.log(`Password valid for ${email}: ${isPasswordValid}`);
+      console.log(`[AUTH] Password valid for ${email}: ${isPasswordValid}`);
 
       if (!isPasswordValid) {
         return res.status(401).json({ error: "Invalid credentials" });
@@ -155,22 +155,29 @@ async function startServer() {
       // Check company status if not super admin
       let companyStatus = 'APPROVED';
       if (user.role !== 'SUPER_ADMIN' && user.company_id) {
+        console.log(`[AUTH] Checking company status for company_id: ${user.company_id}`);
         const { rows: companyRows } = await pool.query("SELECT status FROM companies WHERE id = $1", [user.company_id]);
         const company = companyRows[0];
 
         if (company) {
           companyStatus = company.status;
+          console.log(`[AUTH] Company status for ${user.company_id}: ${companyStatus}`);
           if (company.status === 'SUSPENDED') {
             return res.status(403).json({ error: "Your company account has been suspended." });
           }
+        } else {
+          console.log(`[AUTH] Company not found for company_id: ${user.company_id}`);
         }
       }
 
+      console.log(`[AUTH] Login successful for: ${email}. Generating token...`);
       const token = jwt.sign({ id: user.id, company_id: user.company_id, role: user.role, company_status: companyStatus }, JWT_SECRET, { expiresIn: "24h" });
       res.cookie("token", token, { httpOnly: true, secure: true, sameSite: "none" });
+      console.log(`[AUTH] Cookie set. Sending response for: ${email}`);
       res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role, company_id: user.company_id, company_status: companyStatus } });
-    } catch (err) {
-      res.status(500).json({ error: "Login failed" });
+    } catch (err: any) {
+      console.error("[AUTH] Login error:", err);
+      res.status(500).json({ error: "Login failed", details: err.message });
     }
   });
 
@@ -796,6 +803,15 @@ async function startServer() {
       res.sendFile(path.join(__dirname, "dist", "index.html"));
     });
   }
+
+  // Global Error Handler
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("Unhandled Error:", err);
+    res.status(500).json({ 
+      error: "Internal Server Error", 
+      message: err.message || "An unexpected error occurred" 
+    });
+  });
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);

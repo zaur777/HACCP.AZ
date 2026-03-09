@@ -70,8 +70,11 @@ export default function App() {
     try {
       const data = await api.auth.me();
       if (data.user) setUser(data.user);
-    } catch (err) {
-      console.error('Auth check failed');
+    } catch (err: any) {
+      // Only log if it's not a normal 401 (not logged in)
+      if (!err.message?.includes('401')) {
+        console.error('Auth check failed:', err.message);
+      }
     } finally {
       setLoading(false);
     }
