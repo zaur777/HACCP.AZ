@@ -77,6 +77,22 @@ async function startServer() {
   app.use(express.json());
   app.use(cookieParser());
 
+  // Remove trailing slashes from all requests
+  app.use((req, res, next) => {
+    if (req.path.length > 1 && req.path.endsWith('/')) {
+      const query = req.url.slice(req.path.length);
+      const safepath = req.path.slice(0, -1);
+      req.url = safepath + query;
+    }
+    next();
+  });
+
+  // Request Logger for API
+  app.use("/api/*", (req, res, next) => {
+    console.log(`[API] ${req.method} ${req.url}`);
+    next();
+  });
+
   // Auth Middleware
   const authenticate = (req: any, res: any, next: any) => {
     const token = req.cookies.token;
@@ -133,6 +149,7 @@ async function startServer() {
 
   // Auth Routes
   app.post("/api/auth/login", async (req, res) => {
+    console.log(`[AUTH] POST /api/auth/login request received`);
     const { email, password } = req.body;
     console.log(`[AUTH] Login attempt for: ${email}`);
     
@@ -787,7 +804,14 @@ async function startServer() {
 
   // Handle 404 for API routes
   app.all("/api/*", (req, res) => {
+    console.log(`[API 404] ${req.method} ${req.url}`);
     res.status(404).json({ error: `API route ${req.method} ${req.url} not found` });
+  });
+
+  // Catch-all for any other unhandled requests
+  app.use((req, res, next) => {
+    console.log(`[UNHANDLED] ${req.method} ${req.url}`);
+    next();
   });
   
   // Vite middleware for development
