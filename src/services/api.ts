@@ -3,6 +3,7 @@ import { User, Company, JournalTemplate, LogEntry, CCPDefinition, HACCPPlan } fr
 const API_BASE = '/api';
 
 const handleResponse = async (res: Response) => {
+  console.log(`API Response: ${res.status} ${res.url}`);
   const text = await res.text();
   let data;
   try {
@@ -102,5 +103,8 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     }).then(handleResponse),
+  },
+  payments: {
+    list: () => fetch(`${API_BASE}/payments`).then(handleResponse),
   }
 };

@@ -10,6 +10,8 @@ import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
+import http from "http";
+import { WebSocketServer, WebSocket } from "ws";
 
 dotenv.config();
 
@@ -41,38 +43,161 @@ pool.query("SELECT NOW()", (err, res) => {
 
 const JWT_SECRET = process.env.JWT_SECRET || "haccp-secret-key-123";
 
-async function seedSuperAdmin() {
+async function seedInitialData() {
   try {
-    console.log("Checking for Super Admin in database...");
-    const { rows } = await pool.query("SELECT id FROM users WHERE email = $1", ["admin@safeflow.com"]);
-    console.log(`Found ${rows.length} admin users.`);
-    if (rows.length === 0) {
+    console.log("Checking for initial data in database...");
+    
+    // Seed Super Admin
+    const { rows: adminRows } = await pool.query("SELECT id FROM users WHERE email = $1", ["admin@safefood.com"]);
+    if (adminRows.length === 0) {
       console.log("Super Admin not found. Seeding...");
       const hash = bcrypt.hashSync("admin123", 10);
       await pool.query(
         "INSERT INTO users (email, password_hash, name, role, is_active) VALUES ($1, $2, $3, $4, $5)",
-        ["admin@safeflow.com", hash, "Super Admin", "SUPER_ADMIN", true]
+        ["admin@safefood.com", hash, "Super Admin", "SUPER_ADMIN", true]
       );
-      console.log("Super Admin seeded: admin@safeflow.com / admin123");
-    } else {
-      console.log("Super Admin already exists.");
+      console.log("Super Admin seeded: admin@safefood.com / admin123");
+    }
+
+    // Seed FreshBite Manager
+    const { rows: managerRows } = await pool.query("SELECT id FROM users WHERE email = $1", ["manager@freshbite.com"]);
+    if (managerRows.length === 0) {
+      console.log("FreshBite Manager not found. Seeding...");
+      
+      // Create FreshBite Company first
+      const { rows: companyRows } = await pool.query("SELECT id FROM companies WHERE name = $1", ["FreshBite"]);
+      let companyId;
+      if (companyRows.length === 0) {
+        const insertCompany = await pool.query(
+          "INSERT INTO companies (name, industry_type, status) VALUES ($1, $2, $3) RETURNING id",
+          ["FreshBite", "Catering", "APPROVED"]
+        );
+        companyId = insertCompany.rows[0].id;
+        console.log("FreshBite Company created.");
+      } else {
+        companyId = companyRows[0].id;
+      }
+
+      const hash = bcrypt.hashSync("manager123", 10);
+      await pool.query(
+        "INSERT INTO users (company_id, email, password_hash, name, role, is_active) VALUES ($1, $2, $3, $4, $5, $6)",
+        [companyId, "manager@freshbite.com", hash, "FreshBite Manager", "COMPANY_ADMIN", true]
+      );
+      console.log("FreshBite Manager seeded: manager@freshbite.com / manager123");
     }
   } catch (err) {
-    console.error("Auto-seeding failed:", err);
+    console.error("Initial data seeding failed:", err);
+  }
+}
+
+async function runMigrations() {
+  try {
+    console.log("Running migrations...");
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id SERIAL PRIMARY KEY,
+        sender_id INTEGER REFERENCES users(id) NOT NULL,
+        receiver_id INTEGER REFERENCES users(id),
+        company_id INTEGER REFERENCES companies(id),
+        content TEXT NOT NULL,
+        is_read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS payments (
+        id SERIAL PRIMARY KEY,
+        company_id INTEGER REFERENCES companies(id) NOT NULL,
+        user_id INTEGER REFERENCES users(id) NOT NULL,
+        amount DECIMAL(10, 2) NOT NULL,
+        currency VARCHAR(10) DEFAULT 'AZN',
+        tariff_plan VARCHAR(50) NOT NULL,
+        duration_months INTEGER NOT NULL,
+        status VARCHAR(20) DEFAULT 'COMPLETED',
+        payment_method VARCHAR(50) DEFAULT 'CARD',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    
+    await pool.query(`
+      ALTER TABLE companies ADD COLUMN IF NOT EXISTS subscription_expires_at TIMESTAMPTZ;
+      ALTER TABLE companies ADD COLUMN IF NOT EXISTS tariff_duration_months INTEGER;
+      ALTER TABLE companies ADD COLUMN IF NOT EXISTS phone_number TEXT;
+      ALTER TABLE companies ADD COLUMN IF NOT EXISTS facility_addresses TEXT;
+    `);
+    
+    console.log("Migrations completed.");
+  } catch (err) {
+    console.error("Migration failed:", err);
   }
 }
 
 async function startServer() {
   console.log("Starting server...");
+  await runMigrations();
+  await seedInitialData();
+  
   const app = express();
+  const server = http.createServer(app);
+  const wss = new WebSocketServer({ server });
   const PORT = 3000;
+
+  // WebSocket Chat Logic
+  const clients = new Map<number, WebSocket>();
+
+  wss.on("connection", (ws, req) => {
+    const cookies = req.headers.cookie;
+    if (!cookies) return ws.close();
+    
+    const token = cookies.split(';').find(c => c.trim().startsWith('token='))?.split('=')[1];
+    if (!token) return ws.close();
+
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      const userId = decoded.id;
+      clients.set(userId, ws);
+
+      ws.on("message", async (data) => {
+        const message = JSON.parse(data.toString());
+        const { receiverId, content, companyId } = message;
+
+        // Save to DB
+        const { rows } = await pool.query(
+          "INSERT INTO messages (sender_id, receiver_id, company_id, content) VALUES ($1, $2, $3, $4) RETURNING *",
+          [userId, receiverId || null, companyId || null, content]
+        );
+        const savedMsg = rows[0];
+
+        // Broadcast to receiver if online
+        if (receiverId && clients.has(receiverId)) {
+          clients.get(receiverId)?.send(JSON.stringify(savedMsg));
+        }
+        
+        // If it's a message to super admin, broadcast to all super admins online
+        if (!receiverId) {
+          const { rows: admins } = await pool.query("SELECT id FROM users WHERE role = 'SUPER_ADMIN'");
+          admins.forEach(admin => {
+            if (clients.has(admin.id)) {
+              clients.get(admin.id)?.send(JSON.stringify(savedMsg));
+            }
+          });
+        }
+      });
+
+      ws.on("close", () => {
+        clients.delete(userId);
+      });
+    } catch (err) {
+      ws.close();
+    }
+  });
 
   app.get("/api/ping", (req, res) => {
     res.send("pong");
   });
 
-  // Run auto-seeding in background
-  seedSuperAdmin().catch(err => console.error("Background seeding failed:", err));
+  // Run migrations and seeding
+  await runMigrations();
+  seedInitialData().catch(err => console.error("Background seeding failed:", err));
 
   app.use(express.json());
   app.use(cookieParser());
@@ -213,13 +338,15 @@ async function startServer() {
       adminEmail, 
       adminPassword, 
       confirmPassword, 
-      industryType 
+      industryType,
+      tariffPlan,
+      tariffDuration
     } = req.body;
     
-    console.log(`Registration attempt for company: ${companyName}, admin: ${adminEmail}`);
+    console.log(`Registration attempt for company: ${companyName}, admin: ${adminEmail}, plan: ${tariffPlan}`);
 
     try {
-      if (!companyName || !adminName || !adminEmail || !adminPassword) {
+      if (!companyName || !adminName || !adminEmail || !adminPassword || !tariffPlan) {
         return res.status(400).json({ error: "Missing required fields" });
       }
 
@@ -236,17 +363,35 @@ async function startServer() {
       try {
         await client.query('BEGIN');
         
+        const expiresAt = new Date();
+        expiresAt.setMonth(expiresAt.getMonth() + (tariffDuration || 1) + 1);
+
         const companyRes = await client.query(
-          `INSERT INTO companies (name, reg_number, address, industry_type, responsible_person, status, tariff_plan) 
-           VALUES ($1, $2, $3, $4, $5, 'PENDING', 'BASIC') RETURNING id`,
-          [companyName, regNumber || null, address || null, industryType, responsiblePerson || null]
+          `INSERT INTO companies (name, reg_number, address, industry_type, responsible_person, status, tariff_plan, tariff_duration_months, subscription_expires_at) 
+           VALUES ($1, $2, $3, $4, $5, 'PENDING', $6, $7, $8) RETURNING id`,
+          [companyName, regNumber || null, address || null, industryType, responsiblePerson || null, tariffPlan, (tariffDuration || 1) + 1, expiresAt]
         );
         const companyId = companyRes.rows[0].id;
 
         const hash = bcrypt.hashSync(adminPassword, 10);
-        await client.query(
-          "INSERT INTO users (company_id, email, password_hash, name, role, is_active) VALUES ($1, $2, $3, $4, 'COMPANY_ADMIN', true)",
+        const userRes = await client.query(
+          "INSERT INTO users (company_id, email, password_hash, name, role, is_active) VALUES ($1, $2, $3, $4, 'COMPANY_ADMIN', true) RETURNING id",
           [companyId, adminEmail, hash, adminName]
+        );
+        const userId = userRes.rows[0].id;
+
+        // Record initial payment
+        const getTariffPrice = (m: number) => {
+          if (m === 1) return 30;
+          if (m === 6) return 150;
+          if (m === 12) return 240;
+          return m * 30;
+        };
+        const amount = getTariffPrice(tariffDuration || 1);
+        
+        await client.query(
+          "INSERT INTO payments (company_id, user_id, amount, tariff_plan, duration_months) VALUES ($1, $2, $3, $4, $5)",
+          [companyId, userId, amount, tariffPlan, tariffDuration || 1]
         );
 
         // Create initial HACCP plan
@@ -277,15 +422,167 @@ async function startServer() {
       const user = rows[0];
       if (!user) return res.status(404).json({ error: "User not found" });
 
-      let companyStatus = 'APPROVED';
+      let companyInfo = {};
       if (user.role !== 'SUPER_ADMIN' && user.company_id) {
-        const { rows: companyRows } = await pool.query("SELECT status FROM companies WHERE id = $1", [user.company_id]);
-        if (companyRows[0]) companyStatus = companyRows[0].status;
+        const { rows: companyRows } = await pool.query(
+          "SELECT status, subscription_expires_at, name as company_name, industry_type, reg_number, address, phone_number, facility_addresses FROM companies WHERE id = $1", 
+          [user.company_id]
+        );
+        if (companyRows[0]) {
+          companyInfo = {
+            company_status: companyRows[0].status,
+            subscription_expires_at: companyRows[0].subscription_expires_at,
+            company_name: companyRows[0].company_name,
+            industry_type: companyRows[0].industry_type,
+            reg_number: companyRows[0].reg_number,
+            address: companyRows[0].address,
+            phone_number: companyRows[0].phone_number,
+            facility_addresses: companyRows[0].facility_addresses
+          };
+        }
       }
 
-      res.json({ user: { ...user, company_status: companyStatus } });
+      res.json({ user: { ...user, ...companyInfo } });
     } catch (err) {
+      console.error("Auth check error:", err);
       res.status(500).json({ error: "Failed to fetch user" });
+    }
+  });
+
+  app.patch("/api/auth/profile", authenticate, async (req: any, res) => {
+    const { name, email, password, company_name, industry_type, reg_number, address, phone_number, facility_addresses } = req.body;
+    try {
+      // Update user info
+      let userQuery = "UPDATE users SET name = $1, email = $2";
+      let userParams = [name, email, req.user.id];
+      
+      if (password) {
+        const hash = bcrypt.hashSync(password, 10);
+        userQuery += ", password_hash = $4 WHERE id = $3";
+        userParams.push(hash);
+      } else {
+        userQuery += " WHERE id = $3";
+      }
+      
+      await pool.query(userQuery, userParams);
+
+      // Update company info if applicable
+      if (req.user.company_id && (req.user.role === 'COMPANY_ADMIN' || req.user.role === 'HACCP_MANAGER')) {
+        await pool.query(
+          `UPDATE companies SET 
+            name = $1, 
+            industry_type = $2, 
+            reg_number = $3, 
+            address = $4, 
+            phone_number = $5, 
+            facility_addresses = $6 
+          WHERE id = $7`,
+          [company_name, industry_type, reg_number, address, phone_number, facility_addresses, req.user.company_id]
+        );
+      }
+      
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message.includes('unique') ? "Email already exists" : "Update failed" });
+    }
+  });
+
+  // Subscription / Tariff Routes
+  app.post("/api/companies/:id/subscription", authenticate, async (req: any, res) => {
+    if (req.user.role !== 'SUPER_ADMIN' && req.user.role !== 'COMPANY_ADMIN') {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    
+    const { months, plan } = req.body;
+    const companyId = req.params.id;
+    
+    try {
+      const { rows } = await pool.query("SELECT subscription_expires_at FROM companies WHERE id = $1", [companyId]);
+      let currentExpires = rows[0]?.subscription_expires_at ? new Date(rows[0].subscription_expires_at) : new Date();
+      if (currentExpires < new Date()) currentExpires = new Date();
+      
+      currentExpires.setMonth(currentExpires.getMonth() + months);
+      
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        
+        await client.query(
+          "UPDATE companies SET tariff_plan = $1, tariff_duration_months = $2, subscription_expires_at = $3 WHERE id = $4",
+          [plan, months, currentExpires, companyId]
+        );
+
+        const getTariffPrice = (m: number) => {
+          if (m === 1) return 30;
+          if (m === 6) return 150;
+          if (m === 12) return 240;
+          return m * 30;
+        };
+        const amount = getTariffPrice(months);
+
+        await client.query(
+          "INSERT INTO payments (company_id, user_id, amount, tariff_plan, duration_months) VALUES ($1, $2, $3, $4, $5)",
+          [companyId, req.user.id, amount, plan, months]
+        );
+
+        await client.query('COMMIT');
+        res.json({ success: true, expiresAt: currentExpires });
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update subscription" });
+    }
+  });
+
+  app.get("/api/payments", authenticate, async (req: any, res) => {
+    try {
+      let query = `
+        SELECT p.*, c.name as company_name, u.name as user_name 
+        FROM payments p
+        JOIN companies c ON p.company_id = c.id
+        JOIN users u ON p.user_id = u.id
+      `;
+      const params: any[] = [];
+
+      if (req.user.role !== 'SUPER_ADMIN') {
+        query += " WHERE p.company_id = $1";
+        params.push(req.user.company_id);
+      }
+
+      query += " ORDER BY p.created_at DESC";
+
+      const { rows } = await pool.query(query, params);
+      res.json(rows);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch payments" });
+    }
+  });
+
+  // Chat Routes
+  app.get("/api/messages", authenticate, async (req: any, res) => {
+    const companyId = req.user.company_id;
+    try {
+      let query = `
+        SELECT m.*, u.name as sender_name, u.role as sender_role 
+        FROM messages m
+        JOIN users u ON m.sender_id = u.id
+      `;
+      let params: any[] = [];
+
+      if (req.user.role !== 'SUPER_ADMIN') {
+        query += " WHERE m.company_id = $1 OR m.receiver_id = $2";
+        params.push(companyId, req.user.id);
+      }
+      
+      query += " ORDER BY m.created_at ASC";
+      const { rows } = await pool.query(query, params);
+      res.json(rows);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch messages" });
     }
   });
 
@@ -743,64 +1040,7 @@ async function startServer() {
     }
   });
 
-  // Gemini AI Route
-  app.post("/api/analyze-hazards", authenticate, async (req: any, res) => {
-    const { productDescription } = req.body;
-
-    if (!productDescription || productDescription.trim().length < 10) {
-      return res.status(400).json({ error: "Product description too short." });
-    }
-
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({ error: "AI Analysis is currently unavailable (API key missing)." });
-    }
-
-    const ai = new GoogleGenAI({ apiKey });
-
-    try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `As a food safety expert, analyze the following product description and suggest potential biological, chemical, and physical hazards for a HACCP plan.
-        
-        Product Description: ${productDescription}`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                type: {
-                  type: Type.STRING,
-                  description: "The type of hazard (Biological, Chemical, or Physical)",
-                },
-                hazard: {
-                  type: Type.STRING,
-                  description: "A brief description of the hazard",
-                },
-                control_measure: {
-                  type: Type.STRING,
-                  description: "The control measure to prevent or eliminate the hazard",
-                },
-              },
-              required: ["type", "hazard", "control_measure"],
-            },
-          },
-        },
-      });
-
-      const text = response.text;
-      if (!text) {
-        throw new Error("AI returned an empty response.");
-      }
-
-      res.json(JSON.parse(text));
-    } catch (error: any) {
-      console.error("Gemini AI Error:", error);
-      res.status(500).json({ error: "AI Analysis failed", details: error.message });
-    }
-  });
+  // Chat Routes
 
   // Handle 404 for API routes
   app.all("/api/*", (req, res) => {
@@ -809,10 +1049,7 @@ async function startServer() {
   });
 
   // Catch-all for any other unhandled requests
-  app.use((req, res, next) => {
-    console.log(`[UNHANDLED] ${req.method} ${req.url}`);
-    next();
-  });
+  // Removed noisy logging that was confusing users
   
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
@@ -837,7 +1074,7 @@ async function startServer() {
     });
   });
 
-  app.listen(PORT, "0.0.0.0", () => {
+  server.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }

@@ -1,4 +1,4 @@
--- PostgreSQL Schema for SafeFlow HACCP
+-- PostgreSQL Schema for SafeFood HACCP
 
 -- Companies Table
 CREATE TABLE IF NOT EXISTS companies (

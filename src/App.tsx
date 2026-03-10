@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   LayoutDashboard, 
   ClipboardList, 
@@ -28,7 +28,10 @@ import {
   Trash2,
   Edit,
   ToggleLeft,
-  ToggleRight
+  ToggleRight,
+  MessageSquare,
+  CreditCard,
+  UserCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { api } from './services/api';
@@ -51,8 +54,26 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [language, setLanguage] = useState<Language>(() => (localStorage.getItem('safeflow_lang') as Language) || 'en');
   const [showLanding, setShowLanding] = useState(true);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [socket, setSocket] = useState<WebSocket | null>(null);
+  const [initialIsCreatingJournal, setInitialIsCreatingJournal] = useState(false);
 
   const t = translations[language];
+
+  useEffect(() => {
+    if (user) {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${window.location.host}`);
+      
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        setMessages(prev => [...prev, msg]);
+      };
+      
+      setSocket(ws);
+      return () => ws.close();
+    }
+  }, [user]);
 
   useEffect(() => {
     localStorage.setItem('safeflow_view', view);
@@ -95,9 +116,10 @@ export default function App() {
     }
   };
 
-  const handleRegisterCompany = async (e: React.FormEvent<HTMLFormElement>): Promise<boolean> => {
-    e.preventDefault();
-    const form = e.currentTarget;
+  const handleRegisterCompany = async (e: React.FormEvent<HTMLFormElement> | HTMLFormElement): Promise<boolean> => {
+    console.log('handleRegisterCompany called with:', e);
+    const form = 'currentTarget' in e ? e.currentTarget : e;
+    if ('preventDefault' in e) e.preventDefault();
     const formData = new FormData(form);
     const data = {
       companyName: formData.get('companyName') as string,
@@ -109,6 +131,8 @@ export default function App() {
       adminPassword: formData.get('adminPassword') as string,
       confirmPassword: formData.get('confirmPassword') as string,
       industryType: formData.get('industryType') as string,
+      tariffPlan: formData.get('tariffPlan') as string,
+      tariffDuration: formData.get('tariffPlan') === 'ENTERPRISE' ? 12 : (formData.get('tariffPlan') === 'PRO' ? 6 : 1),
     };
 
     if (!data.companyName || !data.adminEmail || !data.adminPassword || !data.adminName) {
@@ -122,10 +146,10 @@ export default function App() {
     }
 
     try {
+      console.log('Registering company with data:', data);
       const res = await api.auth.registerCompany(data);
       if (res.success) {
         alert(t.registration_success || "Registration successful! Please wait for approval.");
-        setShowLanding(true);
         return true;
       } else {
         alert(res.error || 'Registration failed');
@@ -190,7 +214,7 @@ export default function App() {
             <div className="bg-emerald-100 p-3 rounded-xl mb-2">
               <ShieldCheck className="w-10 h-10 text-emerald-600" />
             </div>
-            <h1 className="text-2xl font-bold text-stone-900">SafeFlow HACCP</h1>
+            <h1 className="text-2xl font-bold text-stone-900">SafeFood HACCP</h1>
             <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Food facility HACCP management platform</p>
           </div>
           <p className="text-stone-500 text-center mb-8">{t.sign_in_desc}</p>
@@ -271,7 +295,7 @@ export default function App() {
           <div className="bg-emerald-500 p-2 rounded-lg shrink-0">
             <ShieldCheck className="w-6 h-6 text-white" />
           </div>
-          {isSidebarOpen && <span className="font-bold text-white text-lg tracking-tight">SafeFlow</span>}
+          {isSidebarOpen && <span className="font-bold text-white text-lg tracking-tight">SafeFood</span>}
         </div>
 
         <nav className="flex-1 px-4 space-y-2">
@@ -323,6 +347,36 @@ export default function App() {
               collapsed={!isSidebarOpen}
             />
           )}
+          <NavItem 
+            icon={<MessageSquare size={20} />} 
+            label={t.chat} 
+            active={view === 'chat'} 
+            onClick={() => setView('chat')}
+            collapsed={!isSidebarOpen}
+          />
+          {user.role === 'COMPANY_ADMIN' && (
+            <NavItem 
+              icon={<CreditCard size={20} />} 
+              label={t.tariffs} 
+              active={view === 'tariffs'} 
+              onClick={() => setView('tariffs')}
+              collapsed={!isSidebarOpen}
+            />
+          )}
+          <NavItem 
+            icon={<CreditCard size={20} />} 
+            label={t.payments} 
+            active={view === 'payments'} 
+            onClick={() => setView('payments')}
+            collapsed={!isSidebarOpen}
+          />
+          <NavItem 
+            icon={<UserCircle size={20} />} 
+            label={t.profile} 
+            active={view === 'profile'} 
+            onClick={() => setView('profile')}
+            collapsed={!isSidebarOpen}
+          />
         </nav>
 
         <div className="p-4 border-t border-stone-800 space-y-4">
@@ -380,12 +434,23 @@ export default function App() {
               exit={{ opacity: 0, x: -10 }}
               transition={{ duration: 0.2 }}
             >
-              {view === 'dashboard' && <Dashboard user={user} t={t} />}
-              {view === 'journals' && <JournalsView user={user} t={t} />}
+              {view === 'dashboard' && <Dashboard user={user} t={t} setView={(v) => {
+                if (v === 'journals_create') {
+                  setInitialIsCreatingJournal(true);
+                  setView('journals');
+                } else {
+                  setView(v);
+                }
+              }} />}
+              {view === 'journals' && <JournalsView user={user} t={t} initialIsCreating={initialIsCreatingJournal} onModalClose={() => setInitialIsCreatingJournal(false)} />}
               {view === 'haccp' && <HACCPView user={user} t={t} />}
               {view === 'users' && <UsersView user={user} t={t} />}
               {view === 'companies' && <CompaniesView user={user} t={t} />}
               {view === 'backups' && user.role === 'SUPER_ADMIN' && <BackupsView t={t} />}
+              {view === 'chat' && <ChatView user={user} t={t} messages={messages} socket={socket} />}
+              {view === 'tariffs' && <TariffsView user={user} t={t} />}
+              {view === 'payments' && <PaymentsView t={t} />}
+              {view === 'profile' && <ProfileView user={user} t={t} onUpdate={checkAuth} />}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -512,7 +577,7 @@ function BackupsView({ t }: { t: any }) {
   );
 }
 
-function Dashboard({ user, t }: { user: User, t: any }) {
+function Dashboard({ user, t, setView }: { user: User, t: any, setView: (v: string) => void }) {
   const [logs, setLogs] = useState<any[]>([]);
   const [actions, setActions] = useState<any[]>([]);
   const [adminStats, setAdminStats] = useState<any>(null);
@@ -568,6 +633,30 @@ function Dashboard({ user, t }: { user: User, t: any }) {
 
   return (
     <div className="space-y-8">
+      {user.role !== 'SUPER_ADMIN' && user.subscription_expires_at && (
+        <div className={cn(
+          "p-4 rounded-xl border flex items-center justify-between",
+          new Date(user.subscription_expires_at) < new Date() 
+            ? "bg-red-50 border-red-200 text-red-800"
+            : "bg-amber-50 border-amber-200 text-amber-800"
+        )}>
+          <div className="flex items-center gap-3">
+            <AlertCircle size={20} />
+            <div>
+              <p className="font-bold">
+                {new Date(user.subscription_expires_at) < new Date() ? "Subscription Expired" : "Subscription Active"}
+              </p>
+              <p className="text-sm opacity-90">{t.expires_on}: {new Date(user.subscription_expires_at).toLocaleDateString()}</p>
+            </div>
+          </div>
+          <button 
+            onClick={() => setView('tariffs')}
+            className="px-4 py-2 bg-white rounded-lg shadow-sm font-medium text-sm hover:bg-stone-50 transition-colors"
+          >
+            {t.change_tariff}
+          </button>
+        </div>
+      )}
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold text-stone-900">{t.welcome}, {user.name}</h1>
@@ -737,14 +826,15 @@ function AlertItem({ type, title, desc, time }: { type: 'danger' | 'warning' | '
   );
 }
 
-function JournalsView({ user, t }: { user: User, t: any }) {
+function JournalsView({ user, t, initialIsCreating = false, onModalClose }: { user: User, t: any, initialIsCreating?: boolean, onModalClose?: () => void }) {
   const [journals, setJournals] = useState<JournalTemplate[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeJournal, setActiveJournal] = useState<JournalTemplate | null>(null);
   const [isFilling, setIsFilling] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
+  const [isCreating, setIsCreating] = useState(initialIsCreating);
   const [isSaving, setIsSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [staffList, setStaffList] = useState<User[]>([]);
   const [newFields, setNewFields] = useState<{name: string, label: string, type: string}[]>([
     { name: 'staff_name', label: 'Name of staff', type: 'staff' },
@@ -776,6 +866,12 @@ function JournalsView({ user, t }: { user: User, t: any }) {
       localStorage.setItem('safeflow_draft_template', JSON.stringify({ fields: newFields }));
     }
   }, [newFields, isCreating]);
+
+  useEffect(() => {
+    if (!isCreating && onModalClose) {
+      onModalClose();
+    }
+  }, [isCreating]);
 
   const fetchJournals = () => {
     api.journals.list().then(data => {
@@ -811,7 +907,8 @@ function JournalsView({ user, t }: { user: User, t: any }) {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const name = formData.get('name') as string;
-    const company_id = formData.get('company_id') ? Number(formData.get('company_id')) : undefined;
+    const company_id_raw = formData.get('company_id');
+    const company_id = company_id_raw === "" ? null : (company_id_raw ? Number(company_id_raw) : undefined);
 
     setIsSaving(true);
     try {
@@ -872,6 +969,29 @@ function JournalsView({ user, t }: { user: User, t: any }) {
     }
   };
 
+  const handleImportJournal = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const content = event.target?.result as string;
+        const data = JSON.parse(content);
+        if (!data.name || !data.fields) {
+          throw new Error("Invalid template format. Must have 'name' and 'fields'.");
+        }
+        await api.journals.create(data);
+        alert("Journal template imported successfully!");
+        fetchJournals();
+      } catch (err: any) {
+        alert("Import failed: " + err.message);
+      }
+    };
+    reader.readAsText(file);
+    if (e.target) e.target.value = '';
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -880,6 +1000,20 @@ function JournalsView({ user, t }: { user: User, t: any }) {
           <p className="text-stone-500">Manage and fill your digital compliance logs.</p>
         </div>
         <div className="flex gap-3">
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleImportJournal} 
+            className="hidden" 
+            accept=".json"
+          />
+          <button 
+            onClick={() => fileInputRef.current?.click()}
+            className="bg-white border border-stone-200 px-4 py-2 rounded-lg text-stone-600 font-medium hover:bg-stone-50 transition-colors flex items-center gap-2"
+          >
+            <Download size={18} />
+            {t.import_journal}
+          </button>
           <button 
             onClick={handleExportLogs}
             className="bg-white border border-stone-200 px-4 py-2 rounded-lg text-stone-600 font-medium hover:bg-stone-50 transition-colors flex items-center gap-2"
@@ -887,13 +1021,13 @@ function JournalsView({ user, t }: { user: User, t: any }) {
             <FileText size={18} />
             {t.export_logs}
           </button>
-          {(user.role === 'COMPANY_ADMIN' || user.role === 'HACCP_MANAGER') && (
+          {(user.role === 'SUPER_ADMIN' || user.role === 'COMPANY_ADMIN' || user.role === 'HACCP_MANAGER') && (
             <button 
               onClick={() => setIsCreating(true)}
               className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 hover:bg-emerald-700 transition-colors"
             >
               <Plus size={18} />
-              {t.create_template}
+              {t.create_journal}
             </button>
           )}
         </div>
@@ -1189,6 +1323,7 @@ const HACCP_TEMPLATES = {
 
 function HACCPView({ user, t }: { user: User, t: any }) {
   const [plan, setPlan] = useState<HACCPPlan | null>(null);
+  const [loading, setLoading] = useState(true);
   const [aiAnalysis, setAiAnalysis] = useState<any[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -1211,14 +1346,17 @@ function HACCPView({ user, t }: { user: User, t: any }) {
   }, []);
 
   const fetchPlan = () => {
-    api.haccpPlan.get().then(data => setPlan(data));
+    setLoading(true);
+    api.haccpPlan.get()
+      .then(data => setPlan(data))
+      .catch(err => console.error("Failed to fetch plan:", err))
+      .finally(() => setLoading(false));
   };
 
   const handleApplyTemplate = async (templateKey: keyof typeof HACCP_TEMPLATES) => {
-    if (!plan) return;
     const template = HACCP_TEMPLATES[templateKey];
     const updatedData = {
-      ...plan,
+      ...(plan || {}),
       ...template,
       plan_date: new Date().toISOString().split('T')[0],
       plan_time: new Date().toTimeString().split(' ')[0].substring(0, 5)
@@ -1282,6 +1420,14 @@ function HACCPView({ user, t }: { user: User, t: any }) {
       setIsAnalyzing(false);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <RefreshCw className="animate-spin text-stone-400" size={32} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -1526,8 +1672,9 @@ function HACCPNavItem({ label, active, onClick }: { label: string, active?: bool
   );
 }
 
-function LandingPage({ t, onSignIn, language, setLanguage, onRegister }: { t: any, onSignIn: () => void, language: Language, setLanguage: (l: Language) => void, onRegister: (e: React.FormEvent<HTMLFormElement>) => Promise<boolean> }) {
+function LandingPage({ t, onSignIn, language, setLanguage, onRegister }: { t: any, onSignIn: () => void, language: Language, setLanguage: (l: Language) => void, onRegister: (e: React.FormEvent<HTMLFormElement> | HTMLFormElement) => Promise<boolean> }) {
   const [isRegistering, setIsRegistering] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   return (
     <div className="min-h-screen bg-stone-50 font-sans selection:bg-emerald-100 selection:text-emerald-900">
@@ -1540,7 +1687,7 @@ function LandingPage({ t, onSignIn, language, setLanguage, onRegister }: { t: an
                 <div className="bg-emerald-600 p-1.5 rounded-lg">
                   <ShieldCheck className="w-6 h-6 text-white" />
                 </div>
-                <span className="text-xl font-bold text-stone-900 tracking-tight">SafeFlow</span>
+                <span className="text-xl font-bold text-stone-900 tracking-tight">SafeFood</span>
               </div>
               <span className="text-[10px] font-medium text-stone-400 uppercase tracking-wider leading-none mt-0.5">Food facility HACCP management platform</span>
             </div>
@@ -1625,7 +1772,7 @@ function LandingPage({ t, onSignIn, language, setLanguage, onRegister }: { t: an
               <div className="relative z-10 bg-white rounded-3xl shadow-2xl border border-stone-200 overflow-hidden">
                 <img 
                   src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1200&q=80" 
-                  alt="SafeFlow Food Safety" 
+                  alt="SafeFood Food Safety" 
                   className="w-full h-auto"
                   referrerPolicy="no-referrer"
                 />
@@ -1654,8 +1801,29 @@ function LandingPage({ t, onSignIn, language, setLanguage, onRegister }: { t: an
                 </button>
               </div>
               <form onSubmit={async (e) => { 
-                const success = await onRegister(e); 
-                if (success) setIsRegistering(false); 
+                console.log('Registration form submit event triggered');
+                e.preventDefault();
+                const form = e.currentTarget;
+                
+                // Check browser validation
+                if (!form.checkValidity()) {
+                  console.log('Form validation failed');
+                  form.reportValidity();
+                  return;
+                }
+
+                setLoading(true);
+                try {
+                  console.log('Calling onRegister...');
+                  const success = await onRegister(form); 
+                  console.log('onRegister result:', success);
+                  if (success) setIsRegistering(false); 
+                } catch (err) {
+                  console.error('Error in onSubmit:', err);
+                  alert('An unexpected error occurred. Please try again.');
+                } finally {
+                  setLoading(false);
+                }
               }} className="p-6 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
@@ -1701,13 +1869,29 @@ function LandingPage({ t, onSignIn, language, setLanguage, onRegister }: { t: an
                     <label className="block text-sm font-medium text-stone-700 mb-1">{t.confirm_password}</label>
                     <input name="confirmPassword" type="password" required className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" />
                   </div>
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.select_plan} *</label>
+                    <select name="tariffPlan" required className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none">
+                      <option value="BASIC">{t.tariff_basic} (1 {t.monthly} + {t.one_month_free}) - {t.price_30}</option>
+                      <option value="PRO">{t.tariff_pro} (6 {t.semi_annual} + {t.one_month_free}) - {t.price_150}</option>
+                      <option value="ENTERPRISE">{t.tariff_enterprise} (12 {t.annual} + {t.one_month_free}) - {t.price_240}</option>
+                    </select>
+                  </div>
                 </div>
                 <div className="pt-4">
                   <button 
                     type="submit" 
-                    className="w-full bg-emerald-600 text-white py-3 rounded-lg font-bold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-200"
+                    disabled={loading}
+                    className="w-full bg-emerald-600 text-white py-3 rounded-lg font-bold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
-                    {t.register_company}
+                    {loading ? (
+                      <>
+                        <RefreshCw className="animate-spin" size={20} />
+                        {t.analyzing || 'Processing...'}
+                      </>
+                    ) : (
+                      t.register_company
+                    )}
                   </button>
                 </div>
               </form>
@@ -1829,9 +2013,9 @@ function LandingPage({ t, onSignIn, language, setLanguage, onRegister }: { t: an
         <div className="max-w-7xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-6 h-6 text-emerald-600" />
-            <span className="text-lg font-bold text-stone-900">SafeFlow HACCP</span>
+            <span className="text-lg font-bold text-stone-900">SafeFood HACCP</span>
           </div>
-          <p className="text-stone-400 text-sm">© 2024 SafeFlow Compliance. All rights reserved.</p>
+          <p className="text-stone-400 text-sm">© 2024 SafeFood Compliance. All rights reserved.</p>
           <div className="flex gap-6">
             <a href="#" className="text-stone-400 hover:text-stone-900 transition-colors">Privacy</a>
             <a href="#" className="text-stone-400 hover:text-stone-900 transition-colors">Terms</a>
@@ -2319,7 +2503,7 @@ function CompaniesView({ user, t }: { user: User, t: any }) {
 
 function PlatformSettingsView({ user, t }: { user: User, t: any }) {
   const [settings, setSettings] = useState({
-    platformName: 'SafeFlow HACCP',
+    platformName: 'SafeFood HACCP',
     primaryColor: '#059669',
     enableRegistration: true,
     maintenanceMode: false
@@ -2333,7 +2517,7 @@ function PlatformSettingsView({ user, t }: { user: User, t: any }) {
     <div className="space-y-6 max-w-2xl">
       <div>
         <h2 className="text-2xl font-bold text-stone-900">Platform Settings</h2>
-        <p className="text-stone-500">Global configuration for the SafeFlow platform.</p>
+        <p className="text-stone-500">Global configuration for the SafeFood platform.</p>
       </div>
 
       <div className="bg-white p-8 rounded-2xl border border-stone-200 shadow-sm space-y-6">
@@ -2411,6 +2595,445 @@ function PlatformSettingsView({ user, t }: { user: User, t: any }) {
             Save Platform Config
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileView({ user, t, onUpdate }: { user: User, t: any, onUpdate: () => void }) {
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const data = {
+      name: formData.get('name') as string,
+      email: formData.get('email') as string,
+      password: formData.get('password') as string || undefined,
+      company_name: formData.get('company_name') as string,
+      industry_type: formData.get('industry_type') as string,
+      reg_number: formData.get('reg_number') as string,
+      address: formData.get('address') as string,
+      phone_number: formData.get('phone_number') as string,
+      facility_addresses: formData.get('facility_addresses') as string,
+    };
+
+    setIsSaving(true);
+    try {
+      const res = await fetch('/api/auth/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (res.ok) {
+        alert('Profile updated!');
+        onUpdate();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Update failed');
+      }
+    } catch (err) {
+      alert('Update failed');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-8">
+        <div className="flex items-center gap-4 mb-8">
+          <div className="bg-emerald-100 p-3 rounded-xl">
+            <UserCircle className="w-8 h-8 text-emerald-600" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold text-stone-900">{t.profile}</h2>
+            <p className="text-stone-500">{user.role}</p>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">{t.full_name}</label>
+              <input 
+                name="name"
+                type="text" 
+                defaultValue={user.name}
+                required
+                className="w-full px-4 py-2 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">{t.email_address}</label>
+              <input 
+                name="email"
+                type="email" 
+                defaultValue={user.email}
+                required
+                className="w-full px-4 py-2 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+              />
+            </div>
+          </div>
+
+          {(user.role === 'COMPANY_ADMIN' || user.role === 'HACCP_MANAGER') && (
+            <>
+              <div className="pt-4 border-t border-stone-100">
+                <h3 className="text-lg font-bold text-stone-900 mb-4">{t.register_company}</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.company_name}</label>
+                    <input 
+                      name="company_name"
+                      type="text" 
+                      defaultValue={user.company_name}
+                      required
+                      className="w-full px-4 py-2 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.industry_type}</label>
+                    <input 
+                      name="industry_type"
+                      type="text" 
+                      defaultValue={user.industry_type}
+                      required
+                      className="w-full px-4 py-2 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.tax_id}</label>
+                    <input 
+                      name="reg_number"
+                      type="text" 
+                      defaultValue={user.reg_number}
+                      className="w-full px-4 py-2 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.phone_number}</label>
+                    <input 
+                      name="phone_number"
+                      type="text" 
+                      defaultValue={user.phone_number}
+                      className="w-full px-4 py-2 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.address}</label>
+                    <input 
+                      name="address"
+                      type="text" 
+                      defaultValue={user.address}
+                      className="w-full px-4 py-2 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-stone-700 mb-1">{t.facility_addresses}</label>
+                    <textarea 
+                      name="facility_addresses"
+                      defaultValue={user.facility_addresses}
+                      rows={3}
+                      className="w-full px-4 py-2 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none transition-all resize-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          <div className="pt-4 border-t border-stone-100">
+            <label className="block text-sm font-medium text-stone-700 mb-1">{t.new_password}</label>
+            <input 
+              name="password"
+              type="password" 
+              placeholder="••••••••"
+              className="w-full px-4 py-2 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+            />
+          </div>
+          <div className="flex justify-end pt-4">
+            <button 
+              type="submit"
+              disabled={isSaving}
+              className="bg-emerald-600 text-white px-8 py-2.5 rounded-xl font-medium hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-900/20 disabled:opacity-50"
+            >
+              {isSaving ? t.analyzing : t.update_profile}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function TariffsView({ user, t }: { user: User, t: any }) {
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  const plans = [
+    { id: 'BASIC', name: t.tariff_basic, months: 1, price: t.price_30, label: t.monthly },
+    { id: 'PRO', name: t.tariff_pro, months: 6, price: t.price_150, label: t.semi_annual },
+    { id: 'ENTERPRISE', name: t.tariff_enterprise, months: 12, price: t.price_240, label: t.annual },
+  ];
+
+  const handleSelectPlan = async (plan: string, months: number) => {
+    if (!confirm(`Are you sure you want to select the ${plan} plan?`)) return;
+    
+    setIsUpdating(true);
+    try {
+      const res = await fetch(`/api/companies/${user.company_id}/subscription`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan, months })
+      });
+      if (res.ok) {
+        alert('Subscription updated! Please refresh to see changes.');
+        window.location.reload();
+      } else {
+        alert('Failed to update subscription');
+      }
+    } catch (err) {
+      alert('Failed to update subscription');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-3xl font-bold text-stone-900">{t.tariffs}</h1>
+        <p className="text-stone-500 mt-1">{t.select_plan}</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        {plans.map((plan) => (
+          <div key={plan.id} className="bg-white rounded-2xl shadow-sm border border-stone-200 p-8 flex flex-col">
+            <div className="mb-6">
+              <h3 className="text-xl font-bold text-stone-900">{plan.name}</h3>
+              <p className="text-stone-500 text-sm">{plan.label}</p>
+            </div>
+            <div className="text-4xl font-bold text-emerald-600 mb-8">
+              {plan.price}
+            </div>
+            <ul className="space-y-4 mb-8 flex-1">
+              <li className="flex items-center gap-2 text-stone-600">
+                <Check size={18} className="text-emerald-500" />
+                Full HACCP Access
+              </li>
+              <li className="flex items-center gap-2 text-stone-600">
+                <Check size={18} className="text-emerald-500" />
+                Unlimited Journals
+              </li>
+              <li className="flex items-center gap-2 text-stone-600">
+                <Check size={18} className="text-emerald-500" />
+                AI Risk Analysis
+              </li>
+            </ul>
+            <button 
+              onClick={() => handleSelectPlan(plan.id, plan.months)}
+              disabled={isUpdating}
+              className="w-full py-3 px-6 rounded-xl font-bold transition-all bg-stone-900 text-white hover:bg-stone-800 disabled:opacity-50"
+            >
+              {t.get_started}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ChatView({ user, t, messages: initialMessages, socket }: { user: User, t: any, messages: any[], socket: WebSocket | null }) {
+  const [messages, setMessages] = useState<any[]>([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/messages')
+      .then(res => res.json())
+      .then(data => {
+        setMessages(data);
+        setLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (initialMessages.length > 0) {
+      const lastMsg = initialMessages[initialMessages.length - 1];
+      setMessages(prev => {
+        if (prev.find(m => m.id === lastMsg.id)) return prev;
+        return [...prev, lastMsg];
+      });
+    }
+  }, [initialMessages]);
+
+  const handleSend = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || !socket) return;
+
+    const msg = {
+      content: input,
+      companyId: user.company_id,
+      receiverId: user.role === 'SUPER_ADMIN' ? undefined : null // To super admin
+    };
+
+    socket.send(JSON.stringify(msg));
+    
+    // Optimistic update
+    const optimisticMsg = {
+      id: Date.now(),
+      sender_id: user.id,
+      sender_name: user.name,
+      sender_role: user.role,
+      content: input,
+      created_at: new Date().toISOString()
+    };
+    setMessages(prev => [...prev, optimisticMsg]);
+    setInput('');
+  };
+
+  return (
+    <div className="h-[calc(100vh-12rem)] flex flex-col bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
+      <div className="p-4 border-b border-stone-100 bg-stone-50 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="bg-emerald-500 p-2 rounded-lg">
+            <MessageSquare size={20} className="text-white" />
+          </div>
+          <div>
+            <h2 className="font-bold text-stone-900">{t.chat}</h2>
+            <p className="text-xs text-stone-500">Support & Communication</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-stone-50/30">
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-stone-400">No messages yet. Start a conversation!</p>
+          </div>
+        ) : (
+          messages.map((msg) => (
+            <div 
+              key={msg.id} 
+              className={cn(
+                "flex flex-col max-w-[80%]",
+                msg.sender_id === user.id ? "ml-auto items-end" : "mr-auto items-start"
+              )}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">{msg.sender_name}</span>
+                <span className="text-[10px] text-stone-300">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              </div>
+              <div 
+                className={cn(
+                  "px-4 py-2 rounded-2xl text-sm shadow-sm",
+                  msg.sender_id === user.id 
+                    ? "bg-emerald-600 text-white rounded-tr-none" 
+                    : "bg-white border border-stone-200 text-stone-700 rounded-tl-none"
+                )}
+              >
+                {msg.content}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <form onSubmit={handleSend} className="p-4 bg-white border-t border-stone-100 flex gap-2">
+        <input 
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Type your message..."
+          className="flex-1 px-4 py-2 bg-stone-50 border border-stone-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+        />
+        <button 
+          type="submit"
+          className="bg-emerald-600 text-white p-2 rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-900/20"
+        >
+          <Plus size={24} />
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function PaymentsView({ t }: { t: any }) {
+  const [payments, setPayments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.payments.list().then(data => {
+      setPayments(data);
+      setLoading(false);
+    });
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-stone-900">{t.payment_history}</h2>
+        <p className="text-stone-500">View and track your subscription payments.</p>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-sm">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-stone-50 border-b border-stone-200">
+              <th className="px-6 py-4 text-[10px] font-bold text-stone-400 uppercase tracking-wider">{t.date}</th>
+              <th className="px-6 py-4 text-[10px] font-bold text-stone-400 uppercase tracking-wider">{t.plan}</th>
+              <th className="px-6 py-4 text-[10px] font-bold text-stone-400 uppercase tracking-wider">{t.duration}</th>
+              <th className="px-6 py-4 text-[10px] font-bold text-stone-400 uppercase tracking-wider">{t.amount}</th>
+              <th className="px-6 py-4 text-[10px] font-bold text-stone-400 uppercase tracking-wider">{t.method}</th>
+              <th className="px-6 py-4 text-[10px] font-bold text-stone-400 uppercase tracking-wider">{t.status}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-stone-100">
+            {loading ? (
+              <tr>
+                <td colSpan={6} className="px-6 py-12 text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mx-auto"></div>
+                </td>
+              </tr>
+            ) : payments.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-6 py-12 text-center text-stone-400 italic">
+                  No payments found.
+                </td>
+              </tr>
+            ) : (
+              payments.map((p: any) => (
+                <tr key={p.id} className="hover:bg-stone-50 transition-colors">
+                  <td className="px-6 py-4 text-sm text-stone-600">
+                    {new Date(p.created_at).toLocaleDateString()}
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className="px-2 py-1 bg-stone-100 text-stone-700 text-[10px] font-bold rounded uppercase tracking-wider">
+                      {p.tariff_plan}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-stone-600">
+                    {p.duration_months} {t.months_count}
+                  </td>
+                  <td className="px-6 py-4 text-sm font-bold text-stone-900">
+                    {p.amount} {p.currency}
+                  </td>
+                  <td className="px-6 py-4 text-sm text-stone-600">
+                    {p.payment_method}
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className="px-2 py-1 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded uppercase tracking-wider">
+                      {p.status}
+                    </span>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

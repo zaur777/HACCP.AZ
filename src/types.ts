@@ -9,6 +9,13 @@ export interface User {
   is_active: boolean;
   created_at: string;
   company_status?: 'PENDING' | 'APPROVED' | 'SUSPENDED';
+  subscription_expires_at?: string;
+  company_name?: string;
+  industry_type?: string;
+  reg_number?: string;
+  address?: string;
+  phone_number?: string;
+  facility_addresses?: string;
 }
 
 export interface Company {
@@ -20,6 +27,8 @@ export interface Company {
   responsible_person: string;
   status: 'PENDING' | 'APPROVED' | 'SUSPENDED';
   tariff_plan: 'BASIC' | 'PRO' | 'ENTERPRISE';
+  tariff_duration_months?: number;
+  subscription_expires_at?: string;
   settings: string; // JSON
   created_at: string;
 }
