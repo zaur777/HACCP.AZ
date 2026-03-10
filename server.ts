@@ -340,10 +340,12 @@ async function startServer() {
       confirmPassword, 
       industryType,
       tariffPlan,
-      tariffDuration
+      tariffDuration: rawTariffDuration
     } = req.body;
     
-    console.log(`Registration attempt for company: ${companyName}, admin: ${adminEmail}, plan: ${tariffPlan}`);
+    const tariffDuration = Number(rawTariffDuration) || 1;
+    
+    console.log(`Registration attempt for company: ${companyName}, admin: ${adminEmail}, plan: ${tariffPlan}, duration: ${tariffDuration}`);
 
     try {
       if (!companyName || !adminName || !adminEmail || !adminPassword || !tariffPlan) {
@@ -364,12 +366,12 @@ async function startServer() {
         await client.query('BEGIN');
         
         const expiresAt = new Date();
-        expiresAt.setMonth(expiresAt.getMonth() + (tariffDuration || 1) + 1);
+        expiresAt.setMonth(expiresAt.getMonth() + tariffDuration + 1);
 
         const companyRes = await client.query(
           `INSERT INTO companies (name, reg_number, address, industry_type, responsible_person, status, tariff_plan, tariff_duration_months, subscription_expires_at) 
            VALUES ($1, $2, $3, $4, $5, 'PENDING', $6, $7, $8) RETURNING id`,
-          [companyName, regNumber || null, address || null, industryType, responsiblePerson || null, tariffPlan, (tariffDuration || 1) + 1, expiresAt]
+          [companyName, regNumber || null, address || null, industryType, responsiblePerson || null, tariffPlan, tariffDuration + 1, expiresAt]
         );
         const companyId = companyRes.rows[0].id;
 
@@ -387,11 +389,11 @@ async function startServer() {
           if (m === 12) return 240;
           return m * 30;
         };
-        const amount = getTariffPrice(tariffDuration || 1);
+        const amount = getTariffPrice(tariffDuration);
         
         await client.query(
           "INSERT INTO payments (company_id, user_id, amount, tariff_plan, duration_months) VALUES ($1, $2, $3, $4, $5)",
-          [companyId, userId, amount, tariffPlan, tariffDuration || 1]
+          [companyId, userId, amount, tariffPlan, tariffDuration]
         );
 
         // Create initial HACCP plan
@@ -493,7 +495,8 @@ async function startServer() {
       return res.status(403).json({ error: "Forbidden" });
     }
     
-    const { months, plan } = req.body;
+    const { months: rawMonths, plan } = req.body;
+    const months = Number(rawMonths) || 1;
     const companyId = req.params.id;
     
     try {

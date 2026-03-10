@@ -118,9 +118,25 @@ export default function App() {
 
   const handleRegisterCompany = async (e: React.FormEvent<HTMLFormElement> | HTMLFormElement): Promise<boolean> => {
     console.log('handleRegisterCompany called with:', e);
-    const form = 'currentTarget' in e ? e.currentTarget : e;
-    if ('preventDefault' in e) e.preventDefault();
+    
+    let form: HTMLFormElement;
+    if (e instanceof HTMLFormElement) {
+      form = e;
+    } else if (e && 'currentTarget' in e && e.currentTarget instanceof HTMLFormElement) {
+      form = e.currentTarget;
+    } else if (e && 'target' in e && e.target instanceof HTMLFormElement) {
+      form = e.target;
+    } else {
+      console.error('Could not find form element in handleRegisterCompany');
+      return false;
+    }
+
+    if (e && 'preventDefault' in e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
+
     const formData = new FormData(form);
+    const plan = formData.get('tariffPlan') as string;
     const data = {
       companyName: formData.get('companyName') as string,
       regNumber: formData.get('regNumber') as string,
@@ -131,9 +147,11 @@ export default function App() {
       adminPassword: formData.get('adminPassword') as string,
       confirmPassword: formData.get('confirmPassword') as string,
       industryType: formData.get('industryType') as string,
-      tariffPlan: formData.get('tariffPlan') as string,
-      tariffDuration: formData.get('tariffPlan') === 'ENTERPRISE' ? 12 : (formData.get('tariffPlan') === 'PRO' ? 6 : 1),
+      tariffPlan: plan,
+      tariffDuration: plan === 'ENTERPRISE' ? 12 : (plan === 'PRO' ? 6 : 1),
     };
+
+    console.log('Registration data prepared:', { ...data, adminPassword: '***', confirmPassword: '***' });
 
     if (!data.companyName || !data.adminEmail || !data.adminPassword || !data.adminName) {
       alert("Please fill in all required fields.");
