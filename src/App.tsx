@@ -31,7 +31,8 @@ import {
   ToggleRight,
   MessageSquare,
   CreditCard,
-  UserCircle
+  UserCircle,
+  Calendar
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { api } from './services/api';
@@ -365,6 +366,24 @@ export default function App() {
               collapsed={!isSidebarOpen}
             />
           )}
+          {user.role === 'SUPER_ADMIN' && (
+            <NavItem 
+              icon={<ClipboardList size={20} />} 
+              label={t.haccp_templates} 
+              active={view === 'haccp_templates'} 
+              onClick={() => setView('haccp_templates')}
+              collapsed={!isSidebarOpen}
+            />
+          )}
+          {user.role === 'SUPER_ADMIN' && (
+            <NavItem 
+              icon={<Settings size={20} />} 
+              label={t.platform_settings} 
+              active={view === 'platform_settings'} 
+              onClick={() => setView('platform_settings')}
+              collapsed={!isSidebarOpen}
+            />
+          )}
           <NavItem 
             icon={<MessageSquare size={20} />} 
             label={t.chat} 
@@ -465,6 +484,8 @@ export default function App() {
               {view === 'users' && <UsersView user={user} t={t} />}
               {view === 'companies' && <CompaniesView user={user} t={t} />}
               {view === 'backups' && user.role === 'SUPER_ADMIN' && <BackupsView t={t} />}
+              {view === 'haccp_templates' && user.role === 'SUPER_ADMIN' && <HACCPTemplatesView user={user} t={t} />}
+              {view === 'platform_settings' && user.role === 'SUPER_ADMIN' && <PlatformSettingsView user={user} t={t} />}
               {view === 'chat' && <ChatView user={user} t={t} messages={messages} socket={socket} />}
               {view === 'tariffs' && <TariffsView user={user} t={t} />}
               {view === 'payments' && <PaymentsView t={t} />}
@@ -925,6 +946,14 @@ function JournalsView({ user, t, initialIsCreating = false, onModalClose }: { us
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const name = formData.get('name') as string;
+    
+    // Validate field names
+    if (newFields.some(f => !f.name || !f.name.trim())) {
+      alert('All fields must have a name (ID)');
+      setIsSaving(false);
+      return;
+    }
+
     const company_id_raw = formData.get('company_id');
     const company_id = company_id_raw === "" ? null : (company_id_raw ? Number(company_id_raw) : undefined);
 
@@ -969,7 +998,8 @@ function JournalsView({ user, t, initialIsCreating = false, onModalClose }: { us
     
     const formData = new FormData(e.currentTarget);
     const data: any = {};
-    JSON.parse(activeJournal.fields).forEach((f: any) => {
+    const fields = typeof activeJournal.fields === 'string' ? JSON.parse(activeJournal.fields) : activeJournal.fields;
+    fields.forEach((f: any) => {
       data[f.name] = f.type === 'number' ? Number(formData.get(f.name)) : formData.get(f.name);
     });
 
@@ -1249,7 +1279,7 @@ function JournalsView({ user, t, initialIsCreating = false, onModalClose }: { us
                 </button>
               </div>
               <form onSubmit={handleFillLog} className="p-6 space-y-4">
-                {JSON.parse(activeJournal.fields).map((field: any) => (
+                {(typeof activeJournal.fields === 'string' ? JSON.parse(activeJournal.fields) : activeJournal.fields).map((field: any) => (
                   <div key={field.name}>
                     <label className="block text-sm font-medium text-stone-700 mb-1">{field.label}</label>
                     {field.type === 'staff' ? (
@@ -1303,41 +1333,6 @@ function JournalsView({ user, t, initialIsCreating = false, onModalClose }: { us
   );
 }
 
-const HACCP_TEMPLATES = {
-  poultry: {
-    name: "Poultry Farm",
-    image: "https://picsum.photos/seed/poultry/400/300",
-    product_description: "Production of fresh poultry meat and eggs. Birds are raised in controlled environments with strict biosecurity measures.",
-    flow_diagram: "1. Feed Intake -> 2. Bird Rearing -> 3. Health Monitoring -> 4. Sanitation -> 5. Transport to Processing",
-    hazard_analysis: "Biological: Salmonella, Campylobacter. Physical: Feed contaminants. Chemical: Antibiotic residues.",
-    ccp_determination: "CCP1: Feed Intake (Biological), CCP2: Bird Health (Pathogens), CCP3: Sanitation (Microbial), CCP4: Transport (Cross-contamination)",
-    critical_limits: "Feed: <10 CFU/g Salmonella. Health: <2% mortality. Sanitation: Zero pathogens on surfaces. Transport: Clean crates.",
-    monitoring_procedures: "Feed: Certificates of Analysis. Health: Daily mortality logs. Sanitation: ATP swab testing. Transport: Visual inspection.",
-    corrective_actions_plan: "Feed: Reject shipment. Health: Isolate flock. Sanitation: Re-sanitize. Transport: Wash crates again."
-  },
-  restaurant: {
-    name: "General Restaurant",
-    image: "https://picsum.photos/seed/food-plating/400/300",
-    product_description: "Full-service restaurant preparing various cooked-to-order meals including meat, poultry, and seafood.",
-    flow_diagram: "Receiving -> Storage -> Preparation -> Cooking -> Holding -> Serving",
-    hazard_analysis: "Biological: Pathogen survival (undercooking), cross-contamination. Physical: Foreign objects. Chemical: Cleaning agents.",
-    ccp_determination: "CCP1: Cold Storage (Temp), CCP2: Cooking (Internal Temp), CCP3: Hot Holding (Temp)",
-    critical_limits: "Storage: <5°C. Cooking: >75°C for 15s. Holding: >63°C.",
-    monitoring_procedures: "Storage: Digital thermometer logs. Cooking: Probe thermometer checks. Holding: 2-hour temp checks.",
-    corrective_actions_plan: "Storage: Discard if >5°C for 2h. Cooking: Continue cooking until temp reached. Holding: Reheat to 75°C or discard."
-  },
-  manufacturing: {
-    name: "Food Manufacturing",
-    image: "https://picsum.photos/seed/factory/400/300",
-    product_description: "Large scale processing of packaged food products. Includes automated mixing, cooking, and high-speed packaging lines.",
-    flow_diagram: "Raw Material Intake -> Preparation -> Mixing -> Thermal Processing -> Cooling -> Packaging -> Storage",
-    hazard_analysis: "Biological: Spore-forming bacteria. Physical: Metal fragments, glass. Chemical: Allergen cross-contact.",
-    ccp_determination: "CCP1: Thermal Processing (Time/Temp), CCP2: Metal Detection (Physical), CCP3: Allergen Labeling (Chemical)",
-    critical_limits: "Thermal: >85°C for 2 min. Metal: Fe 1.5mm, Non-Fe 2.0mm, SS 2.5mm. Labeling: 100% accurate.",
-    monitoring_procedures: "Thermal: Continuous chart recorders. Metal: Hourly test piece checks. Labeling: Visual check every batch.",
-    corrective_actions_plan: "Thermal: Re-process or discard. Metal: Hold batch, re-scan. Labeling: Re-label or discard packaging."
-  }
-};
 
 function HACCPView({ user, t }: { user: User, t: any }) {
   const [plan, setPlan] = useState<HACCPPlan | null>(null);
@@ -1347,6 +1342,7 @@ function HACCPView({ user, t }: { user: User, t: any }) {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSelectingTemplate, setIsSelectingTemplate] = useState(false);
+  const [templates, setTemplates] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState(1);
 
   const tabs = [
@@ -1361,6 +1357,7 @@ function HACCPView({ user, t }: { user: User, t: any }) {
 
   useEffect(() => {
     fetchPlan();
+    api.haccpTemplates.list().then(setTemplates).catch(console.error);
   }, []);
 
   const fetchPlan = () => {
@@ -1371,11 +1368,16 @@ function HACCPView({ user, t }: { user: User, t: any }) {
       .finally(() => setLoading(false));
   };
 
-  const handleApplyTemplate = async (templateKey: keyof typeof HACCP_TEMPLATES) => {
-    const template = HACCP_TEMPLATES[templateKey];
+  const handleApplyTemplate = async (template: any) => {
     const updatedData = {
       ...(plan || {}),
-      ...template,
+      product_description: template.product_description,
+      flow_diagram: template.flow_diagram,
+      hazard_analysis: template.hazard_analysis,
+      ccp_determination: template.ccp_determination,
+      critical_limits: template.critical_limits,
+      monitoring_procedures: template.monitoring_procedures,
+      corrective_actions_plan: template.corrective_actions_plan,
       plan_date: new Date().toISOString().split('T')[0],
       plan_time: new Date().toTimeString().split(' ')[0].substring(0, 5)
     };
@@ -1611,15 +1613,15 @@ function HACCPView({ user, t }: { user: User, t: any }) {
                     </button>
                   </div>
                   <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {Object.entries(HACCP_TEMPLATES).map(([key, template]) => (
+                    {templates.map((template) => (
                       <button 
-                        key={key}
-                        onClick={() => handleApplyTemplate(key as keyof typeof HACCP_TEMPLATES)}
+                        key={template.id}
+                        onClick={() => handleApplyTemplate(template)}
                         className="text-left p-0 rounded-2xl border border-stone-200 hover:border-emerald-500 hover:bg-emerald-50 transition-all group overflow-hidden"
                       >
                         <div className="h-32 w-full overflow-hidden">
                           <img 
-                            src={template.image} 
+                            src={template.image || 'https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&q=80&w=800'} 
                             alt={template.name} 
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                             referrerPolicy="no-referrer"
@@ -2519,6 +2521,161 @@ function CompaniesView({ user, t }: { user: User, t: any }) {
   );
 }
 
+function HACCPTemplatesView({ user, t }: { user: User, t: any }) {
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
+
+  useEffect(() => {
+    fetchTemplates();
+  }, []);
+
+  const fetchTemplates = () => {
+    setLoading(true);
+    api.haccpTemplates.list().then(data => {
+      setTemplates(data);
+      setLoading(false);
+    });
+  };
+
+  const handleCreateTemplate = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const data = Object.fromEntries(formData.entries());
+    
+    try {
+      await api.haccpTemplates.create(data);
+      setIsCreating(false);
+      fetchTemplates();
+    } catch (err) {
+      alert('Failed to create template');
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this template?')) return;
+    try {
+      await api.haccpTemplates.delete(id);
+      fetchTemplates();
+    } catch (err) {
+      alert('Failed to delete template');
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold text-stone-900">{t.haccp_templates}</h2>
+          <p className="text-stone-500">{t.manage_haccp_templates}</p>
+        </div>
+        <button 
+          onClick={() => setIsCreating(true)}
+          className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-emerald-700 transition-colors flex items-center gap-2"
+        >
+          <Plus size={18} />
+          {t.create_template}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {loading ? (
+          <div className="col-span-full py-12 text-center text-stone-400">Loading templates...</div>
+        ) : templates.map(template => (
+          <div key={template.id} className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-sm group">
+            <div className="h-40 relative overflow-hidden">
+              <img 
+                src={template.image || 'https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&q=80&w=800'} 
+                alt={template.name} 
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                referrerPolicy="no-referrer"
+              />
+              <button 
+                onClick={() => handleDelete(template.id)}
+                className="absolute top-2 right-2 p-2 bg-white/90 backdrop-blur-sm text-rose-600 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white"
+              >
+                <Trash2 size={18} />
+              </button>
+            </div>
+            <div className="p-6">
+              <h3 className="font-bold text-stone-900 mb-2">{template.name}</h3>
+              <p className="text-sm text-stone-500 line-clamp-3 mb-4">{template.product_description}</p>
+              <div className="flex items-center gap-2 text-xs text-stone-400">
+                <Calendar size={14} />
+                {new Date(template.created_at).toLocaleDateString()}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <AnimatePresence>
+        {isCreating && (
+          <div className="fixed inset-0 bg-stone-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col"
+            >
+              <div className="p-6 border-b border-stone-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-stone-900">Create HACCP Template</h3>
+                <button onClick={() => setIsCreating(false)} className="text-stone-400 hover:text-stone-600">
+                  <X size={24} />
+                </button>
+              </div>
+              <form onSubmit={handleCreateTemplate} className="p-6 space-y-4 overflow-y-auto">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Template Name</label>
+                    <input name="name" required className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" placeholder="e.g. Meat Processing" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Image URL</label>
+                    <input name="image" className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none" placeholder="https://..." />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Product Description</label>
+                    <textarea name="product_description" rows={3} className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none resize-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Flow Diagram</label>
+                    <textarea name="flow_diagram" rows={3} className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none resize-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Hazard Analysis</label>
+                    <textarea name="hazard_analysis" rows={3} className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none resize-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">CCP Determination</label>
+                    <textarea name="ccp_determination" rows={3} className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none resize-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Critical Limits</label>
+                    <textarea name="critical_limits" rows={3} className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none resize-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Monitoring Procedures</label>
+                    <textarea name="monitoring_procedures" rows={3} className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none resize-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Corrective Actions Plan</label>
+                    <textarea name="corrective_actions_plan" rows={3} className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none resize-none" />
+                  </div>
+                </div>
+                <div className="pt-4 flex gap-3">
+                  <button type="button" onClick={() => setIsCreating(false)} className="flex-1 px-4 py-2 border border-stone-200 rounded-lg text-stone-600 font-medium hover:bg-stone-50 transition-colors">Cancel</button>
+                  <button type="submit" className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors">Create Template</button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function PlatformSettingsView({ user, t }: { user: User, t: any }) {
   const [settings, setSettings] = useState({
     platformName: 'SafeFood HACCP',
@@ -2534,13 +2691,13 @@ function PlatformSettingsView({ user, t }: { user: User, t: any }) {
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h2 className="text-2xl font-bold text-stone-900">Platform Settings</h2>
-        <p className="text-stone-500">Global configuration for the SafeFood platform.</p>
+        <h2 className="text-2xl font-bold text-stone-900">{t.platform_settings}</h2>
+        <p className="text-stone-500">{t.global_config}</p>
       </div>
 
       <div className="bg-white p-8 rounded-2xl border border-stone-200 shadow-sm space-y-6">
         <div>
-          <label className="block text-sm font-medium text-stone-700 mb-1">Platform Name</label>
+          <label className="block text-sm font-medium text-stone-700 mb-1">{t.platform_name}</label>
           <input 
             value={settings.platformName}
             onChange={e => setSettings({...settings, platformName: e.target.value})}
@@ -2549,7 +2706,7 @@ function PlatformSettingsView({ user, t }: { user: User, t: any }) {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-stone-700 mb-1">Primary Brand Color</label>
+          <label className="block text-sm font-medium text-stone-700 mb-1">{t.primary_color}</label>
           <div className="flex gap-3">
             <input 
               type="color"
@@ -2568,7 +2725,7 @@ function PlatformSettingsView({ user, t }: { user: User, t: any }) {
         <div className="space-y-4 pt-4 border-t border-stone-100">
           <div className="flex items-center justify-between">
             <div>
-              <p className="font-bold text-stone-900">Enable Public Registration</p>
+              <p className="font-bold text-stone-900">{t.enable_registration}</p>
               <p className="text-xs text-stone-500">Allow new companies to register via landing page.</p>
             </div>
             <button 
@@ -2587,7 +2744,7 @@ function PlatformSettingsView({ user, t }: { user: User, t: any }) {
 
           <div className="flex items-center justify-between">
             <div>
-              <p className="font-bold text-stone-900">Maintenance Mode</p>
+              <p className="font-bold text-stone-900">{t.maintenance_mode}</p>
               <p className="text-xs text-stone-500">Disable access for all users except Super Admins.</p>
             </div>
             <button 

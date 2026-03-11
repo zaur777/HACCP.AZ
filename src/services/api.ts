@@ -104,6 +104,17 @@ export const api = {
       body: JSON.stringify(data)
     }).then(handleResponse),
   },
+  haccpTemplates: {
+    list: () => fetch(`${API_BASE}/haccp-templates`).then(handleResponse),
+    create: (data: any) => fetch(`${API_BASE}/haccp-templates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    }).then(handleResponse),
+    delete: (id: number) => fetch(`${API_BASE}/haccp-templates/${id}`, {
+      method: 'DELETE'
+    }).then(handleResponse),
+  },
   payments: {
     list: () => fetch(`${API_BASE}/payments`).then(handleResponse),
   }
