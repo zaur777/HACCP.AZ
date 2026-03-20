@@ -36,6 +36,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     }).then(handleResponse),
+    getGoogleUrl: () => fetch(`${API_BASE}/auth/google/url`).then(handleResponse),
   },
   admin: {
     stats: () => fetch(`${API_BASE}/admin/stats`).then(handleResponse),

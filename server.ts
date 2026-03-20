@@ -12,6 +12,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
+import axios from "axios";
 
 dotenv.config();
 
@@ -177,6 +178,10 @@ async function runMigrations() {
       ALTER TABLE companies ADD COLUMN IF NOT EXISTS tariff_duration_months INTEGER;
       ALTER TABLE companies ADD COLUMN IF NOT EXISTS phone_number TEXT;
       ALTER TABLE companies ADD COLUMN IF NOT EXISTS facility_addresses TEXT;
+    `);
+
+    await pool.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT;
     `);
     
     console.log("Migrations completed.");
@@ -380,6 +385,136 @@ async function startServer() {
   app.post("/api/auth/logout", (req, res) => {
     res.clearCookie("token");
     res.json({ success: true });
+  });
+
+  // Google OAuth Routes
+  app.get("/api/auth/google/url", (req, res) => {
+    const redirectUri = `${process.env.APP_URL || 'http://localhost:3000'}/api/auth/google/callback`;
+    const params = new URLSearchParams({
+      client_id: process.env.GOOGLE_CLIENT_ID || '',
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: 'openid email profile',
+      access_type: 'offline',
+      prompt: 'consent'
+    });
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+    res.json({ url: authUrl });
+  });
+
+  app.get("/api/auth/google/callback", async (req, res) => {
+    const { code } = req.query;
+    if (!code) return res.status(400).send("Code missing");
+
+    try {
+      const redirectUri = `${process.env.APP_URL || 'http://localhost:3000'}/api/auth/google/callback`;
+      
+      // Exchange code for tokens
+      const tokenResponse = await axios.post("https://oauth2.googleapis.com/token", {
+        code,
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code",
+      });
+
+      const { access_token } = tokenResponse.data;
+
+      // Get user info from Google
+      const userResponse = await axios.get("https://www.googleapis.com/oauth2/v3/userinfo", {
+        headers: { Authorization: `Bearer ${access_token}` },
+      });
+
+      const googleUser = userResponse.data;
+      const { sub: googleId, email, name, picture } = googleUser;
+
+      // Check if user exists
+      let { rows } = await pool.query("SELECT * FROM users WHERE google_id = $1 OR email = $2", [googleId, email]);
+      let user = rows[0];
+
+      if (!user) {
+        // Create new user if not exists
+        // Default to EMPLOYEE role for new Google users, or maybe we should ask?
+        // For now, let's just create them as EMPLOYEE if they don't exist.
+        // But wait, they need a company_id.
+        // If they don't have a company, maybe we should redirect them to a "complete profile" page?
+        // For simplicity in this demo, let's assume they might already have an account by email.
+        
+        // If user exists by email but no google_id, link them
+        const { rows: emailRows } = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
+        if (emailRows.length > 0) {
+          user = emailRows[0];
+          await pool.query("UPDATE users SET google_id = $1 WHERE id = $2", [googleId, user.id]);
+        } else {
+          // Truly new user - we might need to handle this better (e.g. redirect to registration)
+          // But for now, let's just fail if they don't have an account yet, or create a placeholder.
+          return res.send(`
+            <html>
+              <body>
+                <script>
+                  if (window.opener) {
+                    window.opener.postMessage({ type: 'OAUTH_AUTH_ERROR', error: 'No account found with this email. Please register first.' }, '*');
+                    window.close();
+                  } else {
+                    window.location.href = '/?error=no_account';
+                  }
+                </script>
+              </body>
+            </html>
+          `);
+        }
+      } else if (!user.google_id) {
+        await pool.query("UPDATE users SET google_id = $1 WHERE id = $2", [googleId, user.id]);
+      }
+
+      // Check company status
+      let companyStatus = 'APPROVED';
+      if (user.role !== 'SUPER_ADMIN' && user.company_id) {
+        const { rows: companyRows } = await pool.query("SELECT status FROM companies WHERE id = $1", [user.company_id]);
+        if (companyRows[0]) companyStatus = companyRows[0].status;
+      }
+
+      if (companyStatus === 'SUSPENDED') {
+        return res.send(`
+          <html>
+            <body>
+              <script>
+                if (window.opener) {
+                  window.opener.postMessage({ type: 'OAUTH_AUTH_ERROR', error: 'Your company account has been suspended.' }, '*');
+                  window.close();
+                } else {
+                  window.location.href = '/?error=suspended';
+                }
+              </script>
+            </body>
+          </html>
+        `);
+      }
+
+      // Generate token
+      const token = jwt.sign({ id: user.id, company_id: user.company_id, role: user.role, company_status: companyStatus }, JWT_SECRET, { expiresIn: "24h" });
+      res.cookie("token", token, { httpOnly: true, secure: true, sameSite: "none" });
+
+      // Send success message to parent window and close popup
+      res.send(`
+        <html>
+          <body>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
+                window.close();
+              } else {
+                window.location.href = '/';
+              }
+            </script>
+            <p>Authentication successful. This window should close automatically.</p>
+          </body>
+        </html>
+      `);
+    } catch (err: any) {
+      console.error("Google OAuth error:", err.response?.data || err.message);
+      res.status(500).send("Authentication failed");
+    }
   });
 
   app.post("/api/auth/register-company", async (req, res) => {
