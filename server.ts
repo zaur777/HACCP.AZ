@@ -192,67 +192,66 @@ async function runMigrations() {
 
 async function startServer() {
   console.log("Starting server...");
-  await runMigrations();
-  await seedInitialData();
-  
+
+  // 1. Initialize Database & Migrations first
+  try {
+    await runMigrations();
+    await seedInitialData();
+  } catch (err) {
+    console.error("Critical Startup Error (DB):", err);
+    // process.exit(1); // Optional: Stop server if DB fails
+  }
+
   const app = express();
   const server = http.createServer(app);
-  const wss = new WebSocketServer({ server });
-  const PORT = 3000;
+  
+  // 2. REQUIRED MIDDLEWARES (Must be before routes)
+  app.use(express.json());       // Required for req.body in Login
+  app.use(cookieParser());      // Required for req.cookies in Auth check
 
-  // WebSocket Chat Logic
-  const clients = new Map<number, WebSocket>();
-
-  wss.on("connection", (ws, req) => {
-    const cookies = req.headers.cookie;
-    if (!cookies) return ws.close();
+  // 3. CORS & Security Headers (Optimized for haccp.az)
+  app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", process.env.APP_URL || "https://haccp.az");
+    res.header("Access-Control-Allow-Credentials", "true");
+    res.header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
     
-    const token = cookies.split(';').find(c => c.trim().startsWith('token='))?.split('=')[1];
-    if (!token) return ws.close();
-
-    try {
-      const decoded = jwt.verify(token, JWT_SECRET) as any;
-      const userId = decoded.id;
-      clients.set(userId, ws);
-
-      ws.on("message", async (data) => {
-        const message = JSON.parse(data.toString());
-        const { receiverId, content, companyId } = message;
-
-        // Save to DB
-        const { rows } = await pool.query(
-          "INSERT INTO messages (sender_id, receiver_id, company_id, content) VALUES ($1, $2, $3, $4) RETURNING *",
-          [userId, receiverId || null, companyId || null, content]
-        );
-        const savedMsg = rows[0];
-
-        // Broadcast to receiver if online
-        if (receiverId && clients.has(receiverId)) {
-          clients.get(receiverId)?.send(JSON.stringify(savedMsg));
-        }
-        
-        // If it's a message to super admin, broadcast to all super admins online
-        if (!receiverId) {
-          const { rows: admins } = await pool.query("SELECT id FROM users WHERE role = 'SUPER_ADMIN'");
-          admins.forEach(admin => {
-            if (clients.has(admin.id)) {
-              clients.get(admin.id)?.send(JSON.stringify(savedMsg));
-            }
-          });
-        }
-      });
-
-      ws.on("close", () => {
-        clients.delete(userId);
-      });
-    } catch (err) {
-      ws.close();
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
     }
+    next();
   });
 
-  app.get("/api/ping", (req, res) => {
-    res.send("pong");
+  // 4. URL Formatting Middleware
+  app.use((req, res, next) => {
+    if (req.path.length > 1 && req.path.endsWith('/')) {
+      const query = req.url.slice(req.path.length);
+      const safepath = req.path.slice(0, -1);
+      req.url = safepath + query;
+    }
+    next();
   });
+
+  // 5. AUTHENTICATION MIDDLEWARE
+  const authenticate = (req: any, res: any, next: any) => {
+    const token = req.cookies.token;
+    if (!token) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      req.user = decoded;
+      next();
+    } catch (err) {
+      res.status(401).json({ error: "Invalid token" });
+    }
+  };
+
+  // 6. ROUTES BEGIN HERE
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  // ... (Rest of your routes: app.post("/api/auth/login"), etc.)
+}
 
   // Run migrations and seeding
   await runMigrations();
