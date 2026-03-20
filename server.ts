@@ -373,7 +373,12 @@ async function startServer() {
 
       console.log(`[AUTH] Login successful for: ${email}. Generating token...`);
       const token = jwt.sign({ id: user.id, company_id: user.company_id, role: user.role, company_status: companyStatus }, JWT_SECRET, { expiresIn: "24h" });
-      res.cookie("token", token, { httpOnly: true, secure: true, sameSite: "none" });
+      res.cookie("token", token, { 
+  httpOnly: true, 
+  secure: true, 
+  sameSite: "lax", // Changed from "none"
+  maxAge: 24 * 60 * 60 * 1000 // 24 hours
+});
       console.log(`[AUTH] Cookie set. Sending response for: ${email}`);
       res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role, company_id: user.company_id, company_status: companyStatus } });
     } catch (err: any) {
