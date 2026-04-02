@@ -32,7 +32,12 @@ import {
   MessageSquare,
   CreditCard,
   UserCircle,
-  Calendar
+  Calendar,
+  Utensils,
+  Store,
+  Wheat,
+  Bird,
+  Scissors
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { api } from './services/api';
@@ -53,7 +58,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState(() => localStorage.getItem('safeflow_view') || 'dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [language, setLanguage] = useState<Language>(() => (localStorage.getItem('safeflow_lang') as Language) || 'en');
+  const [language, setLanguage] = useState<Language>(() => (localStorage.getItem('safeflow_lang') as Language) || 'az');
   const [showLanding, setShowLanding] = useState(true);
   const [messages, setMessages] = useState<any[]>([]);
   const [socket, setSocket] = useState<WebSocket | null>(null);
@@ -1920,12 +1925,15 @@ function LandingPage({ t, onSignIn, language, setLanguage, onRegister }: { t: an
                   <div>
                     <label className="block text-sm font-medium text-stone-700 mb-1">{t.industry_type}</label>
                     <select name="industryType" className="w-full px-4 py-2 rounded-lg border border-stone-200 outline-none">
+                      <option value="Restaurant">{t.sector_restaurants}</option>
+                      <option value="Market">{t.sector_markets}</option>
+                      <option value="Milk Processing">{t.sector_milk}</option>
+                      <option value="Feed Production">{t.sector_feed}</option>
+                      <option value="Poultry Farm">{t.sector_poultry}</option>
+                      <option value="Slaughtering House">{t.sector_slaughter}</option>
                       <option value="Catering">Catering</option>
-                      <option value="Restaurant">Restaurant</option>
-                      <option value="Food Production">Food Production</option>
                       <option value="Retail">Retail</option>
                       <option value="Logistics">Logistics</option>
-                      <option value="Farm">Farm</option>
                     </select>
                   </div>
                   <div className="col-span-2">
@@ -1982,6 +1990,40 @@ function LandingPage({ t, onSignIn, language, setLanguage, onRegister }: { t: an
           </div>
         )}
       </AnimatePresence>
+
+      {/* Sectors Section */}
+      <section className="py-24 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-16">
+            <h2 className="text-4xl font-bold text-stone-900 mb-6">{t.sectors_title}</h2>
+            <p className="text-lg text-stone-500 leading-relaxed">
+              {t.sector_desc}
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
+            {[
+              { icon: <Utensils className="w-8 h-8" />, label: t.sector_restaurants, color: "bg-orange-50 text-orange-600" },
+              { icon: <Store className="w-8 h-8" />, label: t.sector_markets, color: "bg-blue-50 text-blue-600" },
+              { icon: <Droplets className="w-8 h-8" />, label: t.sector_milk, color: "bg-emerald-50 text-emerald-600" },
+              { icon: <Wheat className="w-8 h-8" />, label: t.sector_feed, color: "bg-amber-50 text-amber-600" },
+              { icon: <Bird className="w-8 h-8" />, label: t.sector_poultry, color: "bg-red-50 text-red-600" },
+              { icon: <Scissors className="w-8 h-8" />, label: t.sector_slaughter, color: "bg-stone-100 text-stone-600" },
+            ].map((sector, i) => (
+              <motion.div
+                key={i}
+                whileHover={{ y: -5 }}
+                className="flex flex-col items-center p-6 rounded-2xl border border-stone-100 hover:border-emerald-100 hover:shadow-xl hover:shadow-emerald-500/5 transition-all"
+              >
+                <div className={cn("p-4 rounded-xl mb-4", sector.color)}>
+                  {sector.icon}
+                </div>
+                <span className="text-sm font-bold text-stone-900 text-center">{sector.label}</span>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
 
       {/* Social Proof */}
       <section className="py-12 bg-white border-y border-stone-100">

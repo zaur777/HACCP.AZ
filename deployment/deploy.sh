@@ -31,10 +31,17 @@ then
 fi
 
 # Start or restart the app
-# We use tsx to run the server.ts directly in production as well, 
-# or you can compile it to JS if preferred.
-# The server.ts handles serving the 'dist' folder in production.
-pm2 start server.ts --name "safefood-haccp" --interpreter tsx || pm2 restart "safefood-haccp"
+# We use the local tsx from node_modules to avoid PATH issues
+# Using absolute path for PM2 reliability
+TSX_PATH="$(pwd)/node_modules/.bin/tsx"
+
+if pm2 list | grep -q "safefood-haccp"; then
+    echo "🔄 Restarting existing process..."
+    pm2 restart "safefood-haccp" --update-env
+else
+    echo "🆕 Starting new process..."
+    pm2 start server.ts --name "safefood-haccp" --interpreter "$TSX_PATH"
+fi
 
 # 6. Save PM2 process list
 pm2 save
