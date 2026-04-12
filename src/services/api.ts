@@ -27,96 +27,109 @@ export const api = {
     login: (credentials: any) => fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(credentials)
+      body: JSON.stringify(credentials),
+      credentials: 'include'
     }).then(handleResponse),
-    logout: () => fetch(`${API_BASE}/auth/logout`, { method: 'POST' }).then(handleResponse),
-    me: () => fetch(`${API_BASE}/auth/me`).then(handleResponse),
+    logout: () => fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' }).then(handleResponse),
+    me: () => fetch(`${API_BASE}/auth/me`, { credentials: 'include' }).then(handleResponse),
     registerCompany: (data: any) => fetch(`${API_BASE}/auth/register-company`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
+      credentials: 'include'
     }).then(handleResponse),
-    getGoogleUrl: () => fetch(`${API_BASE}/auth/google/url`).then(handleResponse),
+    getGoogleUrl: () => fetch(`${API_BASE}/auth/google/url`, { credentials: 'include' }).then(handleResponse),
   },
   admin: {
-    stats: () => fetch(`${API_BASE}/admin/stats`).then(handleResponse),
+    stats: () => fetch(`${API_BASE}/admin/stats`, { credentials: 'include' }).then(handleResponse),
     updateCompany: (id: number, data: any) => fetch(`${API_BASE}/companies/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
+      credentials: 'include'
     }).then(handleResponse),
   },
   companies: {
-    list: () => fetch(`${API_BASE}/companies`).then(handleResponse),
+    list: () => fetch(`${API_BASE}/companies`, { credentials: 'include' }).then(handleResponse),
     create: (data: any) => fetch(`${API_BASE}/companies`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
+      credentials: 'include'
     }).then(handleResponse),
   },
   users: {
-    list: () => fetch(`${API_BASE}/users`).then(handleResponse),
+    list: () => fetch(`${API_BASE}/users`, { credentials: 'include' }).then(handleResponse),
     create: (data: any) => fetch(`${API_BASE}/users`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
+      credentials: 'include'
     }).then(handleResponse),
     update: (id: number, data: any) => fetch(`${API_BASE}/users/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
+      credentials: 'include'
     }).then(handleResponse),
     delete: (id: number) => fetch(`${API_BASE}/users/${id}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      credentials: 'include'
     }).then(handleResponse),
   },
   journals: {
-    list: () => fetch(`${API_BASE}/journals`).then(handleResponse),
+    list: () => fetch(`${API_BASE}/journals`, { credentials: 'include' }).then(handleResponse),
     create: (data: any) => fetch(`${API_BASE}/journals`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
+      credentials: 'include'
     }).then(handleResponse),
   },
   logs: {
-    list: () => fetch(`${API_BASE}/logs`).then(handleResponse),
+    list: () => fetch(`${API_BASE}/logs`, { credentials: 'include' }).then(handleResponse),
     create: (data: any) => fetch(`${API_BASE}/logs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
+      credentials: 'include'
     }).then(handleResponse),
   },
   correctiveActions: {
-    list: () => fetch(`${API_BASE}/corrective-actions`).then(handleResponse),
+    list: () => fetch(`${API_BASE}/corrective-actions`, { credentials: 'include' }).then(handleResponse),
     resolve: (id: number, data: any) => fetch(`${API_BASE}/corrective-actions/${id}/resolve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
+      credentials: 'include'
     }).then(handleResponse),
   },
   ccps: {
-    list: () => fetch(`${API_BASE}/ccps`).then(handleResponse),
+    list: () => fetch(`${API_BASE}/ccps`, { credentials: 'include' }).then(handleResponse),
   },
   haccpPlan: {
-    get: () => fetch(`${API_BASE}/haccp-plan`).then(handleResponse),
+    get: () => fetch(`${API_BASE}/haccp-plan`, { credentials: 'include' }).then(handleResponse),
     update: (data: any) => fetch(`${API_BASE}/haccp-plan`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
+      credentials: 'include'
     }).then(handleResponse),
   },
   haccpTemplates: {
-    list: () => fetch(`${API_BASE}/haccp-templates`).then(handleResponse),
+    list: () => fetch(`${API_BASE}/haccp-templates`, { credentials: 'include' }).then(handleResponse),
     create: (data: any) => fetch(`${API_BASE}/haccp-templates`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
+      credentials: 'include'
     }).then(handleResponse),
     delete: (id: number) => fetch(`${API_BASE}/haccp-templates/${id}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      credentials: 'include'
     }).then(handleResponse),
   },
   payments: {
-    list: () => fetch(`${API_BASE}/payments`).then(handleResponse),
+    list: () => fetch(`${API_BASE}/payments`, { credentials: 'include' }).then(handleResponse),
   }
 };

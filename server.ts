@@ -49,15 +49,15 @@ async function seedInitialData() {
     console.log("Checking for initial data in database...");
     
     // Seed Super Admin
-    const { rows: adminRows } = await pool.query("SELECT id FROM users WHERE email = $1", ["admin@safefood.com"]);
+    const { rows: adminRows } = await pool.query("SELECT id FROM users WHERE email = $1", ["admin@safeflow.com"]);
     if (adminRows.length === 0) {
       console.log("Super Admin not found. Seeding...");
       const hash = bcrypt.hashSync("admin123", 10);
       await pool.query(
         "INSERT INTO users (email, password_hash, name, role, is_active) VALUES ($1, $2, $3, $4, $5)",
-        ["admin@safefood.com", hash, "Super Admin", "SUPER_ADMIN", true]
+        ["admin@safeflow.com", hash, "Super Admin", "SUPER_ADMIN", true]
       );
-      console.log("Super Admin seeded: admin@safefood.com / admin123");
+      console.log("Super Admin seeded: admin@safeflow.com / admin123");
     }
 
     // Seed FreshBite Manager
