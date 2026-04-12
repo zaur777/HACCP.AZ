@@ -37,14 +37,23 @@ TSX_PATH="$(pwd)/node_modules/.bin/tsx"
 
 if pm2 list | grep -q "safefood-haccp"; then
     echo "🔄 Restarting existing process..."
-    pm2 restart "safefood-haccp" --update-env
+    NODE_ENV=production pm2 restart "safefood-haccp" --update-env
 else
     echo "🆕 Starting new process..."
-    pm2 start server.ts --name "safefood-haccp" --interpreter "$TSX_PATH"
+    NODE_ENV=production pm2 start server.ts --name "safefood-haccp" --interpreter "$TSX_PATH"
 fi
 
 # 6. Save PM2 process list
 pm2 save
+
+echo "⏳ Waiting for application to start..."
+sleep 5
+
+echo "📋 Checking application status..."
+pm2 status "safefood-haccp"
+
+echo "📝 Recent logs:"
+pm2 logs "safefood-haccp" --lines 20 --no-daemon
 
 echo "✅ Deployment complete! Your app is now running."
 echo "🔗 Check your domain to see the changes."

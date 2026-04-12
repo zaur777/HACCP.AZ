@@ -1304,6 +1304,13 @@ async function startServer() {
 
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+  }).on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Error: Port ${PORT} is already in use. Please stop the other process or use a different port.`);
+    } else {
+      console.error('Server failed to start:', err);
+    }
+    process.exit(1);
   });
 }
 
